@@ -1,0 +1,669 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<head>
+	<title>Spark Coin Client - <%-clientName%></title>
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+
+	<link rel="stylesheet" href="/node_modules/jquery-ui/dist/themes/dark-hive/jquery-ui.css">
+	<style>
+		body { margin: 0; padding-bottom: 3rem; font:12pt Consolas; color:#FFFFFF; background:#000000 repeat url("../public/4452639598_c7d981777f_o.jpg");}
+		#campaignName { text-align:center;}
+		#timeline { display:flex; position:relative; align-items:center; top:0; margin:0.5em 2em; }
+		#timelineBefore { width:33%; height:0.1em; background:#0000FF; }
+		#timelineDuring { width:34%; border-radius: 0.5em/50%; height:1em; min-width:1em; background:#0000FF; }
+		#timelineAfter { width:33%; height:0.1em;  background:#0000FF; }
+		#timelineNow { position:absolute; width:0.5em; height:0.5em; border-radius: 50%; background:#FF0000; }
+		#campaignMessage { }
+
+		#preamble { color:#444; font-style:italic; list-style-type: none; margin: 0; padding: 0; }      			
+		#activity { height: 30vh; width:100vw; position: fixed; bottom: 2rem; border: 1px solid; overflow-y: scroll; white-space:nowrap;}
+		#messages { list-style-type: none; margin: 0; padding: 0; }
+		#messages > li { padding: 0rem; }
+
+		#form { background: rgba(128, 128, 128, 0.5); padding: 0.25rem; position: fixed; bottom: 0; left: 0; right: 0; display: flex; height: 2rem; box-sizing: border-box; backdrop-filter: blur(10px); }
+		#input { border: none; padding: 0; flex-grow: 1; margin: 0.25rem; }
+		#input:focus { outline: none; }
+		#form > button { background: #333; border: none; padding: 0 1rem; margin: 0.25rem; border-radius: 3px; outline: none; color: #fff; }
+		.t{ color:#888888; } 
+		
+		#tooltip { position: fixed; white-space:nowrap; opacity: 0; background-color: #88888888; border: 2px solid black; border-radius:5px; padding: 5px; user-select: none; }
+		#tableTop { stroke: #CCCCCCFF; stroke-width: 2; vector-effect: non-scaling-stroke; pointer-events: none; filter: drop-shadow(25px 75px 5px rgb(0 0 0 / 0.5)); }
+		
+		.bucketCircle { stroke:#000000; stroke-width:4; vector-effect:non-scaling-stroke; fill-opacity:0;}
+		.bucketFill { stroke-opacity:0; fill:#00FFFF; fill-opacity:0.5; pointer-events:none;}
+		.bucketTease { stroke-opacity:0; fill:#FF0000FF; fill-opacity:1; pointer-events:none;}
+		.bucketText { fill: #000; stroke: #FFF; stroke-width: 0.5px; pointer-events:none;}
+		
+		.coinCircle { stroke:#00FFFF; stroke-width:2; vector-effect:non-scaling-stroke;}
+		.coinImage { pointer-events:none; }
+	
+	</style>
+
+	<script src="/socket.io/socket.io.js"></script>
+	<script src="/node_modules/jquery/dist/jquery.js"></script>
+	<script src="/node_modules/jquery-ui/dist/jquery-ui.js"></script>
+	<script src="https://d3js.org/d3.v7.min.js"></script>
+	<script>
+		const TIME_OPTIONS = { hour12: false, hour: '2-digit', minute: '2-digit', fractionalSecondDigits: 3 }
+		const fundingScale = 0.02;
+
+		let campaign = <%-campaign%>;
+		let preamble = `<%-preamble%>`;
+		let clientName = "<%-clientName%>";
+		let coinCampaignID = "<%-coinCampaignID%>";
+		let coinID = "<%-coinID%>";
+		let coinSecret = "<%-coinSecret%>"; //If you're a client, you've found the secret code that's embedded in you coin!  Though, you could've just looked at the URL =P
+		let coinToken = "<%-coinToken%>"; //If you're a client, you've found the secret code that was provided by the Spark Coin server to validate subsequent actions.
+		const SPREADSHEET_URL = "<%-spreadsheetURL%>";
+		const DEBUG = <%-debug%>;
+
+		let infoDialog, form;
+
+		function echo(packet){
+			const msgLI =document.createElement("li");
+			msgLI.classList.add("msgLI");
+			msgLI.innerHTML = "<span class='t'>" + new Date(packet.time).toLocaleTimeString([], TIME_OPTIONS) + "></span> " + packet.message;
+			$("#messages").append(msgLI);
+			
+			//If we're already scrolled to the bottom, keep it scrolled to the bottom.  If not, don't scroll as the user may be reading
+			if($("#activity")[0].scrollHeight - $("#activity").scrollTop() - $("#activity").outerHeight() < 1){
+				$("#activity").animate({ scrollTop: $("#activity").prop("scrollHeight")}, 500);
+			}
+		}
+		function redrawCampaign(){
+			let currentTime = new Date().getTime();
+			let duration = campaign.marketEndTime - campaign.marketStartTime;
+			let timeDelta = (currentTime < campaign.marketStartTime) ? campaign.marketStartTime - currentTime : campaign.marketEndTime - currentTime;
+			let maxTime = Math.max(Math.abs(currentTime - campaign.marketStartTime), Math.abs(currentTime - campaign.marketEndTime));
+			let timePixelSpan = $("#timeline").width();
+			
+			const TENSE = (currentTime < campaign.marketStartTime ? "future" : (currentTime < campaign.marketEndTime ? "present" : "past"));
+			
+			
+			$("#timelineBefore").animate({"width": (TENSE == "future" ? timeDelta*(timePixelSpan/maxTime) : 0) + "px" }, 100); //If the event in in the future, there is no before
+			$("#timelineDuring").animate({"width": (TENSE == "present" ? timePixelSpan : duration*(timePixelSpan/maxTime)) + "px" }, 100); //If we're currently in the market, make it span the entire screen.  Otherwise, figure the percentage. 
+			$("#timelineAfter").animate({"width": (TENSE == "past" ? -timeDelta*(timePixelSpan/maxTime) : 0) + "px" }, 100); //If the event was in the past, expand this out (timeDelta will be negative); otherwise it should be 0 width
+			
+			//Determine where to mark "now"
+			$("#timelineNow").animate({"left": (TENSE == "future" ? 0 : (TENSE == "present" ? (duration-timeDelta)*(timePixelSpan/duration) : (timePixelSpan))) - $("#timelineNow").width()/2 + "px" }, 100); //Left wall if upcoming, right-wall if past, mid-way if during
+			
+			//Adjust our message to include tense
+			let timeMessage = "Market " + (TENSE == "future" ? "opens in " : (TENSE == "present" ? "closes in " : "closed ")) + timeDiffMessage(timeDelta) + (TENSE == "past" ? " ago." : ".");;
+			
+			let fundingMessage = "<br/>";
+			let unspentFunding = Math.round(Number(campaign.unspentFunding)*100)/100;
+			let overallFunding = Math.round(Number(campaign.overallFunding)*100)/100;
+			
+			if (unspentFunding >= 0){
+				fundingMessage += "It has $" + unspentFunding.toLocaleString() + " left to spend (" + Math.round(100*unspentFunding/overallFunding) + "%)";
+				if (overallFunding > unspentFunding) fundingMessage += " out of $" + overallFunding.toLocaleString() + " overall";
+				fundingMessage += "!";
+			}
+			
+			$("#campaignMessage").html(timeMessage + fundingMessage);
+			
+			
+			$('#timelineDuring').progressbar({value:true});
+			$("#timeMessage").topCenter();
+			
+			
+		}
+
+		jQuery.fn.topCenter = function(parent) {
+			parent = (parent) ? this.parent() : window;
+			
+			//if(axis == "vertical") this.animate({"top": ((($(parent).height() - this.outerHeight()) / 2) + $(parent).scrollTop() + "px")}, 1000);
+			this.animate({"top": 0, "left": ((($(parent).width() - this.outerWidth()) / 2) + $(parent).scrollLeft() + "px")}, 100);
+			
+			return this;
+		}
+
+//		$(document).ready(function(){
+		window.onload = (event) => {
+			$("#campaignName").html(campaign.name);
+			
+			var socket = io({auth:{token: coinToken}});
+			
+			var messages = $("#messages");
+			var input = $("#input")[0];
+			
+			input.focus();
+			
+			/*socket.on('campaign', function(packetString){
+				let packet = JSON.parse(packetString);
+				echo(packet);
+				campaign = JSON.parse(packet.message);
+				
+				let value = Number(campaign.spentFunds)/Number(campaign.overallFunding)*100;
+				if (Number.isFinite(value)) $("#timelineDuring").progressbar( "option", {value});
+				
+				redrawCampaign();
+			});*/
+			socket.on('coin', function(packetString){
+				let packet = JSON.parse(packetString);
+				echo(packet);
+				coin = JSON.parse(packet.message).coin;
+				
+				$("#coinMessage").html('This part is under construction, but here\'s the raw values:<br />' + 	JSON.stringify(coin, "", "<br />"));
+				
+			});
+			socket.on('coinValues', function(packetString){
+				let packet = JSON.parse(packetString);
+				let coinValues = JSON.parse(packet.message).coinValuesRange.data.values;
+				echo(coinValues.join(","));
+			});
+			socket.on('all', function(packetString) {
+				let packet = JSON.parse(packetString);
+				echo(packet);
+			});
+			
+			
+			$("form").on('submit', function(e) {
+				e.preventDefault();
+				if (input.value) {
+					socket.emit('chat', input.value);
+					input.value = '';
+				}
+			});
+			
+			//echo("Client Loaded!");
+			
+			//echo("Authenticating under " + coinCampaignID + " for " + coinID + " using " + MD5(coinSecret) + " as a hash...");
+		//	socket.emit('authentication', coinCampaignID, coinID, MD5(coinSecret).toUpperCase());
+			socket.emit('getCoin', coinID);
+			
+			infoDialog = $("#infoDialog").dialog({
+				autoOpen: false,
+				maxHeight: 800,
+				minHeight: 300,
+				width: "75%",
+				minWidth: 400,
+				
+				//modal: true,
+				buttons: {	},
+				show: { effect: "fade",	duration: 1000 },
+				hide: { effect: "fade",	duration: 1000 }
+			});
+			
+			$('#infoButton').button().on('click', function() {
+				infoDialog.dialog( infoDialog.dialog('isOpen') ? 'close' : 'open' );
+			});	
+			
+			$('#activity').scrollTop($('#activity').prop('scrollHeight'));
+			
+			$('#timelineDuring').progressbar({value:false});
+
+
+			setInterval(redrawCampaign, 1000);
+			//if(!DEBUG) infoDialog.dialog("open");
+		}
+	
+		function timeDiffMessage(timeDelta){
+			//Break down the difference in millisecond timestamps into days, hours, minutes, seconds.
+			let chunk = Math.abs(timeDelta);
+			const DAYS = Math.floor(chunk/86400000); chunk -= DAYS*86400000;
+			const HOURS = Math.floor(chunk/3600000); chunk -= HOURS*3600000;
+			const MINUTES = Math.floor(chunk/60000); chunk -= MINUTES*60000;
+			const SECONDS = Math.round(chunk/1000);
+			return (DAYS ? DAYS + `day${DAYS > 1? 's' : ''} ` : "") + (HOURS ? HOURS + `hr${HOURS > 1? 's' : ''} ` : "") + (MINUTES ? MINUTES + "min " : "") + SECONDS + "s";
+		}
+		
+		//  A formatted version of a popular md5 implementation.
+		//  Original copyright (c) Paul Johnston & Greg Holt.
+		//  The function itself is now 42 lines long.
+
+		function MD5(inputString) {
+			var hc="0123456789abcdef";
+			function rh(n) {var j,s="";for(j=0;j<=3;j++) s+=hc.charAt((n>>(j*8+4))&0x0F)+hc.charAt((n>>(j*8))&0x0F);return s;}
+			function ad(x,y) {var l=(x&0xFFFF)+(y&0xFFFF);var m=(x>>16)+(y>>16)+(l>>16);return (m<<16)|(l&0xFFFF);}
+			function rl(n,c)            {return (n<<c)|(n>>>(32-c));}
+			function cm(q,a,b,x,s,t)    {return ad(rl(ad(ad(a,q),ad(x,t)),s),b);}
+			function ff(a,b,c,d,x,s,t)  {return cm((b&c)|((~b)&d),a,b,x,s,t);}
+			function gg(a,b,c,d,x,s,t)  {return cm((b&d)|(c&(~d)),a,b,x,s,t);}
+			function hh(a,b,c,d,x,s,t)  {return cm(b^c^d,a,b,x,s,t);}
+			function ii(a,b,c,d,x,s,t)  {return cm(c^(b|(~d)),a,b,x,s,t);}
+			function sb(x) {
+				var i;var nblk=((x.length+8)>>6)+1;var blks=new Array(nblk*16);for(i=0;i<nblk*16;i++) blks[i]=0;
+				for(i=0;i<x.length;i++) blks[i>>2]|=x.charCodeAt(i)<<((i%4)*8);
+				blks[i>>2]|=0x80<<((i%4)*8);blks[nblk*16-2]=x.length*8;return blks;
+			}
+			var i,x=sb(inputString),a=1732584193,b=-271733879,c=-1732584194,d=271733878,olda,oldb,oldc,oldd;
+			for(i=0;i<x.length;i+=16) {olda=a;oldb=b;oldc=c;oldd=d;
+				a=ff(a,b,c,d,x[i+ 0], 7, -680876936);d=ff(d,a,b,c,x[i+ 1],12, -389564586);c=ff(c,d,a,b,x[i+ 2],17,  606105819);
+				b=ff(b,c,d,a,x[i+ 3],22,-1044525330);a=ff(a,b,c,d,x[i+ 4], 7, -176418897);d=ff(d,a,b,c,x[i+ 5],12, 1200080426);
+				c=ff(c,d,a,b,x[i+ 6],17,-1473231341);b=ff(b,c,d,a,x[i+ 7],22,  -45705983);a=ff(a,b,c,d,x[i+ 8], 7, 1770035416);
+				d=ff(d,a,b,c,x[i+ 9],12,-1958414417);c=ff(c,d,a,b,x[i+10],17,     -42063);b=ff(b,c,d,a,x[i+11],22,-1990404162);
+				a=ff(a,b,c,d,x[i+12], 7, 1804603682);d=ff(d,a,b,c,x[i+13],12,  -40341101);c=ff(c,d,a,b,x[i+14],17,-1502002290);
+				b=ff(b,c,d,a,x[i+15],22, 1236535329);a=gg(a,b,c,d,x[i+ 1], 5, -165796510);d=gg(d,a,b,c,x[i+ 6], 9,-1069501632);
+				c=gg(c,d,a,b,x[i+11],14,  643717713);b=gg(b,c,d,a,x[i+ 0],20, -373897302);a=gg(a,b,c,d,x[i+ 5], 5, -701558691);
+				d=gg(d,a,b,c,x[i+10], 9,   38016083);c=gg(c,d,a,b,x[i+15],14, -660478335);b=gg(b,c,d,a,x[i+ 4],20, -405537848);
+				a=gg(a,b,c,d,x[i+ 9], 5,  568446438);d=gg(d,a,b,c,x[i+14], 9,-1019803690);c=gg(c,d,a,b,x[i+ 3],14, -187363961);
+				b=gg(b,c,d,a,x[i+ 8],20, 1163531501);a=gg(a,b,c,d,x[i+13], 5,-1444681467);d=gg(d,a,b,c,x[i+ 2], 9,  -51403784);
+				c=gg(c,d,a,b,x[i+ 7],14, 1735328473);b=gg(b,c,d,a,x[i+12],20,-1926607734);a=hh(a,b,c,d,x[i+ 5], 4,    -378558);
+				d=hh(d,a,b,c,x[i+ 8],11,-2022574463);c=hh(c,d,a,b,x[i+11],16, 1839030562);b=hh(b,c,d,a,x[i+14],23,  -35309556);
+				a=hh(a,b,c,d,x[i+ 1], 4,-1530992060);d=hh(d,a,b,c,x[i+ 4],11, 1272893353);c=hh(c,d,a,b,x[i+ 7],16, -155497632);
+				b=hh(b,c,d,a,x[i+10],23,-1094730640);a=hh(a,b,c,d,x[i+13], 4,  681279174);d=hh(d,a,b,c,x[i+ 0],11, -358537222);
+				c=hh(c,d,a,b,x[i+ 3],16, -722521979);b=hh(b,c,d,a,x[i+ 6],23,   76029189);a=hh(a,b,c,d,x[i+ 9], 4, -640364487);
+				d=hh(d,a,b,c,x[i+12],11, -421815835);c=hh(c,d,a,b,x[i+15],16,  530742520);b=hh(b,c,d,a,x[i+ 2],23, -995338651);
+				a=ii(a,b,c,d,x[i+ 0], 6, -198630844);d=ii(d,a,b,c,x[i+ 7],10, 1126891415);c=ii(c,d,a,b,x[i+14],15,-1416354905);
+				b=ii(b,c,d,a,x[i+ 5],21,  -57434055);a=ii(a,b,c,d,x[i+12], 6, 1700485571);d=ii(d,a,b,c,x[i+ 3],10,-1894986606);
+				c=ii(c,d,a,b,x[i+10],15,   -1051523);b=ii(b,c,d,a,x[i+ 1],21,-2054922799);a=ii(a,b,c,d,x[i+ 8], 6, 1873313359);
+				d=ii(d,a,b,c,x[i+15],10,  -30611744);c=ii(c,d,a,b,x[i+ 6],15,-1560198380);b=ii(b,c,d,a,x[i+13],21, 1309151649);
+				a=ii(a,b,c,d,x[i+ 4], 6, -145523070);d=ii(d,a,b,c,x[i+11],10,-1120210379);c=ii(c,d,a,b,x[i+ 2],15,  718787259);
+				b=ii(b,c,d,a,x[i+ 9],21, -343485551);a=ad(a,olda);b=ad(b,oldb);c=ad(c,oldc);d=ad(d,oldd);
+			}
+			return rh(a)+rh(b)+rh(c)+rh(d);
+		}
+
+	</script>
+</head>
+<body>
+	<div id="infoDialog" title="Info" style="display:hidden;">
+		<p>Hi!</p>
+		<p><strong>What am I looking at?</strong><br/>You likely got here by scanning a Spark Coin or following a URL someone posted that simulates what happens when you scan one.  I hand-craft physical "Spark Coins" that authenticate to a "digital twin" which enables your participation in a virtual marketplace.</p>
+		<p><strong>No, really, what's going on?</strong><br/>A lot!  Most of it isn't visble; there's an entire hand-coded server too.  This is the Client that loads from scanning a coin.  It shows you the current value of your (and everyone's) coin, represents the market using coins-and-buckets, and allows you to "spend" your coin via drag-and-drop, but the server-side functionality and updates to the spreadsheet aren't live yet!  I'm learning major frameworks like NodeJS, Socket.IO, D3, jQuery, and even haven't programmed anything in years, so please be patient...</p>
+		<p><strong>What's the bar at the top?</strong><br/>That's the timeline, showing you how much time until the market opens (when you can spend you coin), or time until market closes (and any unspent money on the coin is recycled), or how much time has passed since.  Feel free to ignore it for now.</p>
+		<p><strong>What's the stuff at the bottom?</strong><br/>That's the activity stream.  The Spark-Coin client in the browser is constantly connected to spark-coin.com to provide real-time updates so you're always looking at the latest info!  You can also use it as a chatroom - give it a try!</p>
+		<p><strong>What's a Spark-Coin?</strong><br/>Try going to <a href="http://www.spark-coin.com" target="_blank">http://www.spark-coin.com</a> to read all about them!</p>
+		<p><strong>Where's my information being stored?</strong><br/>Quite frankly, it's not.  Your IP address and browser information is stored in the webserver's RAM to provide a consistent connection, but there's no cookies, accounts, or even a database!  The web-server doesn't save anything to disk, and the only "permanent" data storage happens on a publicly-accessible Google Spreadsheet (event moderators and the web-server have edit permission, but everyone can view).  Everything else (authentication info) is embedded into the coin in your hand, so don't lose it!</p>
+		<p><strong>Where's that spreadsheet?</strong><br/>Right <a href="<%-spreadsheetURL%>" target="_blank">here</a>!  You're free to play with anything in the "000" tab at the bottom as that's the demo/sandbox, but other tabs will be locked down to prevent someone from breaking/cheating on any real-world campaigns :)</a>
+		<p><strong>This is still sus....</strong><br/>New things are scary...  But, everything is open-source and I encourage you or your local spark-cell to check it out and perhaps adapt it to your own local needs!  Click (TODO)here for a github repository and instructions on how to get started!</p>			
+		<p><strong>I've read all this and am still confused... or curious.</strong><br/>That means you're a perfect fit to join our Discord server and ask questions!  Come on by!  <a href="https://discord.gg/h7Fkqk9fBK">https://discord.gg/h7Fkqk9fBK</a></p>
+	</div>
+	<h1 id="campaignName">Loading...</h1>
+	<div id="timeline">
+		<div id="timelineBefore"></div>
+		<div id="timelineDuring"></div>
+		<div id="timelineAfter"></div>
+		<div id="timelineNow">Now</div>
+	</div>
+	<div id="campaignMessage"></div>
+	<div id="coinMessage"></div>
+	<div id="graph"></div>
+	
+
+	<div id="activity">
+		<ul id="preamble">
+			<%-preamble%>
+		</ul>
+
+		<ul id="messages"></ul>
+		<form id="form" action="">
+			<input id="input" placeholder="[USER] >" autocomplete="off" /><button>Send</button>
+			<button id="infoButton" class="ui-button ui-widget ui-corner-all ui-button-icon-only" title="Info">
+				<span class="ui-icon ui-icon-info"></span>Info
+			</button>
+		</form>
+	</div>
+</body>
+<script>
+
+	let tableRadius = 250;
+	
+	//Create and set up our SVG (Scalable Vector Graphics - opting for this over Canvas due to data binding and interactivity performance)	
+	let svg = d3.select('#graph').append('svg')
+		.style('position', 'absolute').style('top', '0').style('left', '0').style('width', '100%').style('height', '100%').style('display', 'block')
+		.attr('viewBox', [0, 0, 1000, 1000]);
+
+	d3.dragDisable(window); //Prevents the entire window being bring dragged
+
+	// create a tooltip used within the GUI
+	let tooltip = d3.select('#graph').append('div').attr('id', 'tooltip');
+	function refreshTooltip(event, subject){
+		let currentTarget = event.currentTarget || event.sourceEvent.currentTarget;
+		if (currentTarget){
+			tooltip
+				.style("left", event.x + 20 + "px")
+				.style("top", event.y + 10 + "px")
+			
+			if(event.type == "mouseover"){
+				tooltip.style('opacity', 1)
+			}
+			if(event.type == "mouseleave"){
+				tooltip.style('opacity', 0)
+				tooltip.html('')
+				.style("left", 0 + "px")
+				.style("top", 0 + "px")
+			}
+
+			if(currentTarget.classList){
+				let currentTargetClass = currentTarget.classList[0];
+				let currentTargetID = currentTarget.id;
+
+				if(currentTargetClass == "bucketCircle"){
+					tooltip.html(`Bucket "${subject.name}"<br>$${Math.round(subject.currentFunding)} of $${Math.round(subject.tier1Goal)} (tier 1)`)
+				}
+				else if(currentTargetClass == "coinCircle"){
+					tooltip.html(`Coin #${currentTargetID.match(/\d+/g)[0]}'s value: $${Math.round(subject.value)}`)
+				}
+			}
+						
+		}else{
+			tooltip.html('');
+			console.log(`Tooltip cannot act upon ${currentTarget}.`);
+		}
+	}
+
+	//Add some text to the GUI.
+	let guiGroup = svg.append("g").attr("id", "guiGroup");
+	//guiGroup.append('text').attr('x', 5).attr('y', 160).style("fill", "white").text("For a good time, grab a few coins and put them in the buckets!");
+	//guiGroup.append('text').attr('x', 5).attr('y', 180).style('fill', 'white').text("You can also pan & zoom like Google Maps!");
+
+	//Set up our table top
+	let tableGroup = svg.append('g').attr('id', 'tableGroup');	
+	let tableTop = tableGroup.append('svg:image')
+		.attr('id', 'tableTop')
+		.attr('xlink:href',  '../public/TableTop.png')
+		.attr('x', 275)//310)
+		.attr('y', 75)
+		.attr('width', tableRadius*2-20)	
+		.attr('height', tableRadius*2-20)
+
+	let bucketsGroup = tableGroup.append('g').attr('id', 'bucketsGroup')
+		.style('filter', 'drop-shadow(25px 75px 5px rgb(0 0 0 / 0.5))');
+		
+	let coinsGroup = tableGroup.append('g').attr('id', 'coinsGroup').attr('cursor', 'grab')
+		.style('filter', 'drop-shadow(2px 6px 1px rgb(0 0 0 / 0.5))');;
+		
+	//Set up simple pan & zoom for our tableGroup (responds to mouse actions on the entire SVG) 
+	svg.call(d3.zoom()
+		.scaleExtent([0.25, 10])
+		.on('zoom', e => tableGroup.attr('transform', e.transform)));	
+
+	//Map our data for use in visualization
+	let bucketData = campaign.buckets.map((e) => {return {name: e[0], currentFunding: e[1], tier1Goal: e[2], tier2Goal: e[3], tier3Goal: e[4], tease: 0, radius: Math.sqrt(e[2]*fundingScale)}	})
+	bucketData = bucketData.filter((e) => {return e.name}); //Filter out those that don't have a name.
+	
+	let coinData = campaign.coins.map(function(e){	return {
+		id: e.ID, value: e.currentValue, multiplier: e.multiplier, lastScanned: e.lastScanned, lastScannedBy: e.lastScannedBy, radius: Math.sqrt(e.currentValue*fundingScale)
+	}}); 
+	
+	//Set up our Buckets' force simulation
+	let bucketSimulation = d3.forceSimulation(bucketData)
+		.velocityDecay(0.08)
+		.alphaDecay(0.003)
+		//.force('centerB', d3.forceCenter(500, 300))
+		.force('collideB', d3.forceCollide().radius((datum) => {
+			return Math.sqrt(datum.tier1Goal*fundingScale) + 0.1;
+		}).strength(1))
+		.force('x', d3.forceX((datum, index) => {
+			return (tableRadius+datum.radius/*Math.sqrt(datum.tier1Goal*fundingScale)*/)*Math.cos(2*Math.PI/bucketData.length * index) + 500;
+		}).strength(0.01))
+		.force('y', d3.forceY((datum, index) => {
+			return (tableRadius+datum.radius/*Math.sqrt(datum.tier1Goal*fundingScale)*/)*Math.sin(2*Math.PI/bucketData.length * index) + 300;
+		}).strength(0.01))
+		.on('tick', bucketTick);
+		
+	function bucketTick(){
+			bucketsGroup.selectAll('circle')
+				.attr('cx', (datum, index, elements) => datum.x )
+				.attr('cy', (datum, index, elements) => datum.y );
+			bucketsGroup.selectAll('image')
+				.attr('x', (datum, index, elements) => datum.x - datum.radius)
+				.attr('y', (datum, index, elements) => datum.y - datum.radius)
+			bucketsGroup.selectAll('text')
+				.attr('x', (datum) => datum.x)
+				.attr('y', (datum) => datum.y)
+	}
+	//setInterval(bucketTick, 16);
+	
+	
+	//Set up our coins' force simulation
+	let coinSimulation = d3.forceSimulation(coinData)
+		.velocityDecay(0.1)
+		//.alphaDecay(0.1)
+		.force('center',  d3.forceCenter(500, 300).strength(0.1))
+		.force('x', d3.forceX((datum, index) => {
+			return datum.forceX ? datum.forceX : 500;
+		}).strength((datum) => datum.forceX ? 0.5 : 0.001))
+		.force('y', d3.forceY((datum, index) => {
+			return datum.forceY ? datum.forceY : 300;
+		}).strength((datum) => datum.forceX ? 0.5 : 0.001))
+		//.force('charge', d3.forceManyBody().strength((datum, index) => (index != 0) ? 0: -10))
+		.force('collide', d3.forceCollide().radius((datum, index) => {
+			return Math.sqrt(datum.value*fundingScale) + 0.1
+		}).strength(1))
+		.on('tick', coinTick);
+	
+	function coinTick(){
+		coinsGroup.selectAll('circle')
+			.attr('cx', (datum) => datum.x + datum.radius)
+			.attr('cy', (datum) => datum.y + datum.radius);
+		coinsGroup.selectAll('image')
+			.attr('x', (datum, index, elements) => {
+				return datum.x// - datum.radius// - elements[index].getAttribute("width")/2
+			})
+			.attr('y', (datum, index, elements) => {
+				return datum.y// - datum.radius// - elements[index].getAttribute("height")/2
+			})
+		//console.log(coinSimulation.alpha());
+	}
+	//setInterval(coinTick, 16);
+	
+	//This function is called on each new coin dot to enable their dragging behavior
+	let dragBucketIndex = -1;
+	let dragging = false;
+	function drag(){
+		
+		return d3.drag()
+			.on("start", (event, subject) => {
+				event.sourceEvent.preventDefault();
+				dragging = true;
+				coinsGroup.attr("cursor", "grabbing");
+				let draggedCircle = d3.select(event.sourceEvent.currentTarget).select('circle');
+				draggedCircle
+					.style('fill', '#FF0000')
+					.style('fill-opacity', 0.5)
+			})
+			.on("drag", (event, subject) => {
+				event.sourceEvent.preventDefault();
+				
+				//"Reheat" the simulations for interactive animation!
+				coinSimulation.alpha(0.3).alphaTarget(0).restart();
+				bucketSimulation.alpha(0.3).alphaTarget(0).restart();
+				
+				//Chase the cursor
+				subject.forceX = event.x;							subject.forceY = event.y;
+				coinSimulation.force('x').initialize(coinData);		coinSimulation.force('y').initialize(coinData);
+
+				//See if we dragged over any buckets
+			let newDraggedOverElements = d3.select(document.elementsFromPoint(event.sourceEvent.clientX || event.sourceEvent.touches[0].clientX, event.sourceEvent.clientY || event.sourceEvent.touches[0].clientY)).nodes()[0];
+				let bucketElement = newDraggedOverElements.find((e) => {
+					let id = e.getAttribute('id')
+					if (id) return id.search(/bucketCircle/g) >= 0;
+				});
+				//If there is a bucketElement, grab the index from the id attribute using Regex; otherwise use -1 to signify no bucket
+				let newDragBucketIndex = bucketElement ? bucketElement.getAttribute('id').match(/\d+/g)[0] : -1; 
+				
+				//See if our targets changed
+				if (dragBucketIndex != newDragBucketIndex){ 
+					if(dragBucketIndex >= 0) bucketData[dragBucketIndex].tease = 0; //We're no longer teasing the old bucket
+					
+					if(newDragBucketIndex >= 0){ //If we're over a bucket, snap to its center
+						let goalGap = Math.max(bucketData[newDragBucketIndex].tier1Goal - bucketData[newDragBucketIndex].currentFunding, 0); //Don't be negative if the bucket is already overflowed.
+						let fillAmount = Math.min(subject.value, goalGap); //Constrain our fill amount to avoid over-flowing.
+						
+						bucketData[newDragBucketIndex].tease += fillAmount;
+						subject.fx = bucketElement.getAttribute('cx') - subject.radius;
+						subject.fy = bucketElement.getAttribute('cy') - subject.radius;
+					}else{	//Otherwise, make sure it's released.
+						subject.fx = null;	subject.fy = null;	
+					}		
+					
+					//console.log(`Drag target changed from ${dragBucketIndex >= 0 ? 'bucket' + dragBucketIndex : 'nothing'} to ${newDragBucketIndex >= 0 ? 'bucket' + newDragBucketIndex : 'nothing'}.`);
+					dragBucketIndex = newDragBucketIndex;
+					
+					
+				}
+				refreshBuckets(); 
+			})
+			.on("end", (event, subject) => {
+				dragging = false;
+				event.sourceEvent.preventDefault();
+				
+				coinsGroup.attr("cursor", "grab"); //Change the cursor back
+
+				//Check to see if we dragged onto anything (probably a bucket)
+				if(dragBucketIndex >= 0){					
+					bucketData[dragBucketIndex].tease = 0 //We're no longer teasing.
+					
+					//Calculate our fill amount.
+					let goalGap = Math.max(bucketData[dragBucketIndex].tier1Goal - bucketData[dragBucketIndex].currentFunding, 0); //Don't be negative if the bucket is already overflowed.
+					let fillAmount = Math.min(subject.value, goalGap); //Constrain our fill amount to avoid over-flowing.
+					
+					//If there is actually any value to transfer, let's execute the change
+					if (fillAmount > 0){
+					
+						//The amount that's added to the bucket is deducted from the coin.
+						bucketData[dragBucketIndex].currentFunding += fillAmount;
+						subject.value -= fillAmount;
+						subject.radius = Math.sqrt(subject.value*fundingScale);
+																
+						//If there's nothing left on the coin, delete it.
+						if (subject.value <= 0){
+							//coinData.splice(subject.index, 1);
+						}			
+						
+						//Our coins probably changed quite a bit, so re-initialize the forces
+						coinSimulation.force('collide').initialize(coinData);
+						coinSimulation.force('center').initialize(coinData); 
+						
+						console.log(`Coin #${subject.index} dropped onto ${dragBucketIndex} filling the remaining $${goalGap} with $${fillAmount} (now $${bucketData[dragBucketIndex].currentFunding}, ${Math.round(bucketData[dragBucketIndex].currentFunding/bucketData[dragBucketIndex].tier1Goal*100)}% full).`)
+					}else console.log(`Coin #${subject.index} dropped onto ${dragBucketIndex}, but nothing was added.`);
+									
+				}else console.log(`Coin #${subject.index} dropped onto nothing.`)
+			
+				refreshCoins();
+				refreshBuckets(); 
+				
+				//Stop chasing the cursor
+				subject.forceX = null;
+				subject.forceY = null;
+				coinSimulation.force('x').initialize(coinData);
+				coinSimulation.force('y').initialize(coinData);
+				coinSimulation.alphaTarget(0).alpha(0.3).restart();
+				//bucketSimulation.alphaTarget(0).alpha(0.3).restart();
+			});
+	}
+	
+	//(re)join the coin data to its elements
+	function refreshCoins(){
+		let coinDots = coinsGroup.selectAll('g').data(coinData, function(datum, index, temp){
+			return datum.index;
+		}).join(
+			function(enteringCoins){ //New coins
+				let coinGroups = enteringCoins.append('g');
+				
+				coinGroups.append('svg:image')
+					.attr('id', (d,i) => 'coinImage' + i)						   
+					.attr('class', 'coinImage')
+					.attr('xlink:href',  '../public/Heads.png')
+					.attr('height', (datum) => datum.radius*2)//Math.sqrt(datum.value*fundingScale)*2)
+					.attr('width', (datum) => datum.radius*2)//Math.sqrt(datum.value*fundingScale)*2);
+					
+				coinGroups.append('circle')
+					.attr('id', (d,i) => 'coinCircle' + i)
+					.attr('class', 'coinCircle')
+					.on('mouseover',  (event, subject) => {if(dragging) return; event.currentTarget.style.stroke = '#FF0000FF'; refreshTooltip(event, subject);})
+					.on('mousemove',  (event, subject) => {if(dragging) return; refreshTooltip(event, subject);})
+					.on('mouseleave',  (event, subject) => {if(dragging) return; event.currentTarget.style.stroke = '#00FFFFFF'; refreshTooltip(event, subject);})
+					.on("click", (event, subject) => event.currentTarget.style.opacity = 1)
+					.attr('r', (datum) => datum.radius)//Math.sqrt(datum.value*fundingScale))
+					.style('fill', '#00000000');
+					
+				coinGroups.call(drag())
+				
+				console.log(enteringCoins.size() + " coins created.");
+			},
+			function(updatingCoins){
+				updatingCoins.selectAll('image')
+					.attr('height', (datum) => datum.radius*2)//Math.sqrt(datum.value*fundingScale)*2)
+					.attr('width', (datum) => datum.radius*2)//Math.sqrt(datum.value*fundingScale)*2);		
+				updatingCoins.selectAll('circle')
+					.attr('r', (datum) => datum.radius)//Math.sqrt(datum.value*fundingScale))
+					.style('fill', '#00000000');
+					
+				console.log(updatingCoins.size() +  " coins updated.");
+			},
+			function(exitingCoins){
+				exitingCoins.remove();
+				console.log(exitingCoins.size() + " coins deleted.");
+			});
+					
+		//d3.select('#coinCircle0')
+			//.style('fill', '#00FF00CC');
+	}refreshCoins();
+	
+	//(Re)join our bucket data to its elements
+	function refreshBuckets(){
+		let bucketDots = bucketsGroup.selectAll('g').data(bucketData, function(datum, index, temp){
+			return datum.index;
+		}).join(
+			function(enteringBuckets){
+				let bucketGroups = enteringBuckets.append('g');
+				
+				bucketGroups.append('svg:image')
+					.attr('class', 'bucketImage')
+					.attr('xlink:href',  '../public/Bucket.png')
+					.attr('height', (datum) => datum.radius*2)//Math.sqrt(datum.tier1Goal*fundingScale)*2) //Diameter is 2X the size of the circle radius later.
+					.attr('width', (datum) => datum.radius*2)//Math.sqrt(datum.tier1Goal*fundingScale)*2)
+				
+				bucketGroups.append('circle')
+					.attr('id', (d,i) => 'bucketCircle' + i)
+					.attr('class', 'bucketCircle')
+					.on('mouseover',  function (event, subject){
+						if(dragging) return; 
+						d3.select(event.currentTarget)
+							.style('stroke', '#FF0000FF');
+						refreshTooltip(event, subject);			
+					})
+					.on('mousemove',  function (event, subject){
+						if(dragging) return; 
+						refreshTooltip(event, subject)
+					})
+					.on('mouseleave',  function (event, subject){
+						if(dragging) return; 
+						d3.select(event.currentTarget)
+							.style('stroke', '#000000FF');
+						refreshTooltip(event, subject);
+					})
+					.transition()	
+					.attr('r', (datum) => datum.radius)
+
+				bucketGroups.append('circle')
+					.attr('id', (d,i) => 'bucketFill' + i)
+					.attr('class', 'bucketFill')			
+					.transition()
+					.style('fill-opacity', (datum) => 0.5 + (datum.currentFunding/datum.tier1Goal)/2)
+					.attr('r', (datum) => Math.sqrt(datum.currentFunding*fundingScale))
+
+				bucketGroups.append('circle')
+					.attr('id', (d,i) => 'bucketTease' + i)
+					.attr('class', 'bucketTease')
+					.transition()
+					.attr('r', (datum) => Math.sqrt((datum.tease > 0 ? datum.currentFunding + datum.tease : 0)*fundingScale));
+									
+				bucketGroups.append('text')
+					.attr('class', 'bucketText')
+					.text((datum) => Math.round((datum.currentFunding/datum.tier1Goal)*100) + "%")
+					
+			},
+			function(updatingBuckets){
+				updatingBuckets.selectAll('.bucketFill')
+					.transition()
+					.style('fill-opacity', (datum) => 0.5 + (datum.currentFunding/datum.tier1Goal)/2)
+					.attr('r', (datum) => Math.sqrt(datum.currentFunding*fundingScale))
+					
+				updatingBuckets.selectAll('.bucketTease')
+					.transition()
+					.attr('r', (datum) => Math.sqrt((datum.tease > 0 ? datum.currentFunding + datum.tease : 0)*fundingScale));
+					
+				updatingBuckets.selectAll('text')
+					.text((datum) => Math.round((datum.currentFunding/datum.tier1Goal)*100) + "%")
+			},
+			function(exitingBuckets){
+				exitingBuckets.remove();
+			});
+	}refreshBuckets();
+		
+</script>
