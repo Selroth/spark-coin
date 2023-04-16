@@ -49,6 +49,7 @@
 		const fundingScale = 0.02;
 
 		let infoDialog, form;
+		let bucketTicksPerSec = 0, coinTicksPerSec = 0;
 
 		function echo(packet){
 			const msgLI =document.createElement("li");
@@ -92,9 +93,10 @@
 			}
 			
 			$("#campaignMessage").html(timeMessage + fundingMessage);
-			
-			
+	
 			$('#timelineDuring').progressbar({value:true});
+			
+			console.log(`${bucketTicksPerSec} / ${coinTicksPerSec}`); bucketTicksPerSec = 0; coinTicksPerSec = 0;
 		}
 
 		window.onload = (event) => {
@@ -262,8 +264,8 @@
 			
 			//Set up our Buckets' force simulation
 			let bucketSimulation = d3.forceSimulation(bucketData)
-				.velocityDecay(0.08)
-				.alphaDecay(0.003)
+				//.velocityDecay(0.08)
+				//.alphaDecay(0.003)
 				//.force('centerB', d3.forceCenter(500, 300))
 				.force('collideB', d3.forceCollide().radius((datum) => {
 					return Math.sqrt(datum.tier1Goal*fundingScale) + 0.1;
@@ -275,6 +277,7 @@
 					return (TABLE_RADIUS+datum.radius*2/*Math.sqrt(datum.tier1Goal*fundingScale)*/)*Math.sin(2*Math.PI/bucketData.length * index) + SVG_HEIGHT/2;
 				}).strength(0.01))
 				.on('tick', () => {
+					bucketTicksPerSec++;
 					bucketsGroup.selectAll('circle')
 						.attr('cx', (datum, index, elements) => Math.round(datum.x*10)/10)
 						.attr('cy', (datum, index, elements) => Math.round(datum.y*10)/10);
@@ -288,7 +291,7 @@
 			
 			//Set up our coins' force simulation
 			let coinSimulation = d3.forceSimulation(coinData)
-				.velocityDecay(0.1)
+				//.velocityDecay(0.1)
 				//.alphaDecay(0.1)
 				.force('center',  d3.forceCenter(SVG_WIDTH/2, SVG_HEIGHT/2).strength(0.1))
 				.force('x', d3.forceX((datum, index) => {
@@ -302,6 +305,7 @@
 					return Math.sqrt(datum.value*fundingScale) + 0.1
 				}).strength(1))
 				.on('tick', () => {
+					coinTicksPerSec++;
 					coinsGroup.selectAll('circle')
 						.attr('cx', (datum, index, elements) => Math.round(datum.x*10)/10)
 						.attr('cy', (datum, index, elements) => Math.round(datum.y*10)/10);
@@ -330,13 +334,13 @@
 						draggedCircle
 							.style('fill', '#FF0000')
 							.style('fill-opacity', 0.5)
+
+						//"Reheat" the simulations for interactive animation!
+						coinSimulation.alphaTarget(1).restart();
+						//bucketSimulation.alphaTarget(1);							
 					})
 					.on("drag", (event, subject) => {
 						event.sourceEvent.preventDefault();
-						
-						//"Reheat" the simulations for interactive animation!
-						coinSimulation.alpha(0.3).alphaTarget(0).restart();
-						bucketSimulation.alpha(0.3).alphaTarget(0).restart();
 						
 						//Chase the cursor
 						subject.forceX = event.x;							subject.forceY = event.y;
@@ -372,6 +376,10 @@
 							
 						}
 						refreshBuckets(); 
+
+						//"Reheat" the simulations for interactive animation!
+						coinSimulation.alphaTarget(1);
+						//bucketSimulation.alphaTarget(1);						
 					})
 					.on("end", (event, subject) => {
 						dragging = false;
@@ -417,7 +425,7 @@
 						subject.forceY = null;
 						coinSimulation.force('x').initialize(coinData);
 						coinSimulation.force('y').initialize(coinData);
-						coinSimulation.alphaTarget(0).alpha(0.3).restart();
+						//coinSimulation.alphaTarget(0).alpha(0.3).restart();
 						//bucketSimulation.alphaTarget(0).alpha(0.3).restart();
 					});
 			}
