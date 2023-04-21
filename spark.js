@@ -413,7 +413,7 @@ io.on('connection', async (socket) => {
 
 		//If the hashes match, authentication was successful!
 		if (coin && coin.secretHash == coinHash) {
-			echo('#' + coinCampaignID, 'SocketIO', `\x1b[31m[${clientName}]\x1b[0m's hash for coin \x1b[32m<${coinID}>\x1b[0m found in row ${coinIndex}!  Sending campaign info..."`);
+			echo('#' + coinCampaignID, 'SocketIO', `\x1b[31m[${clientName}]\x1b[0m's hash for coin \x1b[32m<${coinID}>\x1b[0m found in row ${coinIndex}!  Sending campaign info...`);
 
 			socket.emit(coinSecret, JSON.stringify(campaigns[coinCampaignID]));
 			//Increment the scan count on the spreadsheet, if appropriate.

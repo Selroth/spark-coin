@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <meta charset="utf-8">
 <head>
-	<title>Spark Coin Client - <%-clientName%></title>
+	<title>Spark Coin Client</title>
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 
 	<link rel="stylesheet" href="/node_modules/jquery-ui/dist/themes/dark-hive/jquery-ui.css">
@@ -47,6 +47,77 @@
 	<script src="/client.js"></script>
 	<script>
 		let campaign;
+		let infoDialog, form, tooltip;
+		let tableGroup, bucketsGroup, coinsGroup, guiGroup;
+		let tableTop
+
+		const SVG_WIDTH = 1000;
+		const SVG_HEIGHT = 1000;
+		const TABLE_RADIUS = 250;
+		const MIN_ZOOM = 0.50;
+		const MAX_ZOOM = 50;
+
+		let bucketSimulation;
+
+		function reloadCampaign(){
+			$("#campaignName").html(campaign.name);
+
+			clearInterval();
+			setInterval(redrawCampaign, 1000);
+
+			//Create and set up our SVG (Scalable Vector Graphics - opting for this over Canvas due to data binding and interactivity performance)	
+			const SVG = d3.select('#graph').append('svg')
+				.style('position', 'absolute').style('top', '0').style('left', '0').style('width', '100%').style('height', '100%').style('display', 'block')
+				.attr('viewBox', [0, 0, SVG_WIDTH, SVG_HEIGHT]);
+
+			d3.dragDisable(window); //Prevents the entire window being bring dragged
+
+			// create a tooltip used within the GUI
+			tooltip = d3.select('#graph').append('div').attr('id', 'tooltip');
+
+			//Add some text to the GUI.
+			guiGroup = SVG.append("g").attr("id", "guiGroup");
+			//guiGroup.append('text').attr('x', 5).attr('y', 160).style("fill", "white").text("For a good time, grab a few coins and put them in the buckets!");
+			//guiGroup.append('text').attr('x', 5).attr('y', 180).style('fill', 'white').text("You can also pan & zoom like Google Maps!");
+
+			//Set up our table top
+			tableGroup = SVG.append('g').attr('id', 'tableGroup');	
+			tableTop = tableGroup.append('svg:image')
+				.attr('id', 'tableTop')
+				.attr('xlink:href',  'https://spark-coin.com/public/TableTop.png')
+				.attr('x', SVG_WIDTH/2 - TABLE_RADIUS)
+				.attr('y', SVG_HEIGHT/2 - TABLE_RADIUS)
+				.attr('width', TABLE_RADIUS*2)	
+				.attr('height', TABLE_RADIUS*2)
+
+			bucketsGroup = tableGroup.append('g').attr('id', 'bucketsGroup')
+				.style('filter', 'drop-shadow(25px 75px 5px rgb(0 0 0 / 0.5))');
+				
+			coinsGroup = tableGroup.append('g').attr('id', 'coinsGroup').attr('cursor', 'grab')
+				.style('filter', 'drop-shadow(2px 6px 1px rgb(0 0 0 / 0.5))');;
+				
+			//Set up simple pan & zoom for our tableGroup (responds to mouse actions on the entire SVG) 
+			const ZOOM = d3.zoom()
+				.scaleExtent([MIN_ZOOM, MAX_ZOOM])
+				.on('zoom', e => tableGroup.attr('transform', e.transform))
+			SVG.call(ZOOM);
+
+			//Map our data for use in visualization
+			let bucketData = campaign.buckets.map((e) => {return {name: e[0], currentFunding: e[1], tier1Goal: e[2], tier2Goal: e[3], tier3Goal: e[4], tease: 0, radius: Math.sqrt(e[2]*fundingScale)}	})
+			bucketData = bucketData.filter((e) => {return e.name}); //Filter out those that don't have a name.
+
+			refreshBuckets(bucketsGroup, bucketData);
+			bucketSimulation = initializeBucketSimulation(bucketsGroup, bucketData);
+
+
+			initalizeSimulations(campaign);
+
+			/*setTimeout(() => {
+				SVG.transition().duration(5000).call(
+					ZOOM.transform,
+					d3.zoomIdentity.translate(SVG_WIDTH/2, SVG_HEIGHT/2).scale(25).translate(-(coinData[0].x), -(coinData[0].y))
+			)}, 2000);*/
+		}
 		window.onload = (event) => {
 			let coinBits = window.location.pathname.match(/^\/([a-zA-Z0-9]{2,3})\/([a-zA-Z0-9]{5})-(\S+)$/)
 			let coinCampaignID = coinBits[1];
@@ -54,7 +125,6 @@
 			let coinSecret = coinBits[3];
 
 
-			//$("#campaignName").html(campaign.name);
 			
 			var socket = io({auth:{token: 'test'}});
 			
@@ -94,6 +164,7 @@
 			socket.on(coinSecret, function(packetString) {
 				campaign = JSON.parse(packetString);
 				console.log("Campaign Received!");
+				reloadCampaign();
 			});
 			
 			$("form").on('submit', function(e) {
@@ -126,14 +197,6 @@
 			$('#activity').scrollTop($('#activity').prop('scrollHeight'));
 			
 			$('#timelineDuring').progressbar({value:false});
-
-			setInterval(redrawCampaign, 1000);
-			
-			/*setTimeout(() => {
-				SVG.transition().duration(5000).call(
-					ZOOM.transform,
-					d3.zoomIdentity.translate(SVG_WIDTH/2, SVG_HEIGHT/2).scale(25).translate(-(coinData[0].x), -(coinData[0].y))
-			)}, 2000);*/
 
 		}
 	</script>

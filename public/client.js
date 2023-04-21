@@ -1,7 +1,6 @@
 const TIME_OPTIONS = { hour12: false, hour: '2-digit', minute: '2-digit', fractionalSecondDigits: 3 }
 const fundingScale = 0.02;
 
-let infoDialog, form;
 let bucketTicksPerSec = 0, coinTicksPerSec = 0;
 
 function echo(packet){
@@ -50,24 +49,10 @@ function redrawCampaign(){
 
     $('#timelineDuring').progressbar({value:true});
     
-    console.log(`${bucketTicksPerSec} / ${coinTicksPerSec}`); bucketTicksPerSec = 0; coinTicksPerSec = 0;
+    //console.log(`${bucketTicksPerSec} / ${coinTicksPerSec}`); bucketTicksPerSec = 0; coinTicksPerSec = 0;
 }
 
-const SVG_WIDTH = 1000;
-const SVG_HEIGHT = 1000;
-const TABLE_RADIUS = 250;
-const MIN_ZOOM = 0.50;
-const MAX_ZOOM = 50;
 
-//Create and set up our SVG (Scalable Vector Graphics - opting for this over Canvas due to data binding and interactivity performance)	
-const SVG = d3.select('#graph').append('svg')
-    .style('position', 'absolute').style('top', '0').style('left', '0').style('width', '100%').style('height', '100%').style('display', 'block')
-    .attr('viewBox', [0, 0, SVG_WIDTH, SVG_HEIGHT]);
-
-d3.dragDisable(window); //Prevents the entire window being bring dragged
-
-// create a tooltip used within the GUI
-let tooltip = d3.select('#graph').append('div').attr('id', 'tooltip');
 function refreshTooltip(event, subject){
     let currentTarget = event.currentTarget || event.sourceEvent.currentTarget;
     if (currentTarget){
@@ -103,68 +88,118 @@ function refreshTooltip(event, subject){
     }
 }
 
-//Add some text to the GUI.
-let guiGroup = SVG.append("g").attr("id", "guiGroup");
-//guiGroup.append('text').attr('x', 5).attr('y', 160).style("fill", "white").text("For a good time, grab a few coins and put them in the buckets!");
-//guiGroup.append('text').attr('x', 5).attr('y', 180).style('fill', 'white').text("You can also pan & zoom like Google Maps!");
+function initializeBucketSimulation(bucketsGroup, bucketData){ 
+    let bucketSimulation = d3.forceSimulation(bucketData)
+    .velocityDecay(1)
+    .alphaDecay(0.01)
+    .force('collideB', d3.forceCollide().radius((datum) => {
+        return Math.sqrt(datum.tier1Goal*fundingScale) + 0.1;
+    }).strength(1))
+    .force('x', d3.forceX((datum, index) => {
+        return (TABLE_RADIUS+datum.radius*2/*Math.sqrt(datum.tier1Goal*fundingScale)*/)*Math.cos(2*Math.PI/bucketData.length * index) + SVG_WIDTH/2;
+    }).strength(0.05))
+    .force('y', d3.forceY((datum, index) => {
+        return (TABLE_RADIUS+datum.radius*2/*Math.sqrt(datum.tier1Goal*fundingScale)*/)*Math.sin(2*Math.PI/bucketData.length * index) + SVG_HEIGHT/2;
+    }).strength(0.05))
+    .on('tick', () => {
+        bucketTicksPerSec++;
+        bucketsGroup.selectAll('circle')
+            .attr('cx', (datum, index, elements) => Math.round(datum.x*10)/10)
+            .attr('cy', (datum, index, elements) => Math.round(datum.y*10)/10);
+        bucketsGroup.selectAll('image')
+            .attr('x', (datum, index, elements) => Math.round(datum.x*10)/10 - datum.radius)
+            .attr('y', (datum, index, elements) => Math.round(datum.y*10)/10 - datum.radius)
+        bucketsGroup.selectAll('text')
+            .attr('x', (datum) => Math.round(datum.x))
+            .attr('y', (datum) => Math.round(datum.y))
+    });
 
-//Set up our table top
-let tableGroup = SVG.append('g').attr('id', 'tableGroup');	
-let tableTop = tableGroup.append('svg:image')
-    .attr('id', 'tableTop')
-    .attr('xlink:href',  'https://spark-coin.com/public/TableTop.png')
-    .attr('x', SVG_WIDTH/2 - TABLE_RADIUS)
-    .attr('y', SVG_HEIGHT/2 - TABLE_RADIUS)
-    .attr('width', TABLE_RADIUS*2)	
-    .attr('height', TABLE_RADIUS*2)
+    return bucketSimulation;
+}
 
-let bucketsGroup = tableGroup.append('g').attr('id', 'bucketsGroup')
-    .style('filter', 'drop-shadow(25px 75px 5px rgb(0 0 0 / 0.5))');
-    
-let coinsGroup = tableGroup.append('g').attr('id', 'coinsGroup').attr('cursor', 'grab')
-    .style('filter', 'drop-shadow(2px 6px 1px rgb(0 0 0 / 0.5))');;
-    
-//Set up simple pan & zoom for our tableGroup (responds to mouse actions on the entire SVG) 
-const ZOOM = d3.zoom()
-    .scaleExtent([MIN_ZOOM, MAX_ZOOM])
-    .on('zoom', e => tableGroup.attr('transform', e.transform))
-SVG.call(ZOOM);
+//(Re)join our bucket data to its elements
+function refreshBuckets(bucketsGroup, bucketData){
+    let bucketDots = bucketsGroup.selectAll('g').data(bucketData, function(datum, index, temp){
+        return datum.index;
+    }).join(
+        function(enteringBuckets){
+            let bucketGroups = enteringBuckets.append('g');
+            
+            bucketGroups.append('svg:image')
+                .attr('class', 'bucketImage')
+                .attr('xlink:href',  'https://spark-coin.com/public/Bucket.png')
+                .attr('height', (datum) => datum.radius*2)//Math.sqrt(datum.tier1Goal*fundingScale)*2) //Diameter is 2X the size of the circle radius later.
+                .attr('width', (datum) => datum.radius*2)//Math.sqrt(datum.tier1Goal*fundingScale)*2)
+            
+            bucketGroups.append('circle')
+                .attr('id', (d,i) => 'bucketCircle' + i)
+                .attr('class', 'bucketCircle')
+                .on('mouseover',  function (event, subject){
+                    if(dragging) return; 
+                    d3.select(event.currentTarget)
+                        .style('stroke', '#FF0000FF');
+                    refreshTooltip(event, subject);			
+                })
+                .on('mousemove',  function (event, subject){
+                    if(dragging) return; 
+                    refreshTooltip(event, subject)
+                })
+                .on('mouseleave',  function (event, subject){
+                    if(dragging) return; 
+                    d3.select(event.currentTarget)
+                        .style('stroke', '#000000FF');
+                    refreshTooltip(event, subject);
+                })
+                .transition()	
+                .attr('r', (datum) => datum.radius)
+
+            bucketGroups.append('circle')
+                .attr('id', (d,i) => 'bucketFill' + i)
+                .attr('class', 'bucketFill')			
+                .transition()
+                .style('fill-opacity', (datum) => (datum.currentFunding == datum.tier1Goal) ? 1 : 0.5)
+                .attr('r', (datum) => Math.sqrt(datum.currentFunding*fundingScale))
+
+            bucketGroups.append('circle')
+                .attr('id', (d,i) => 'bucketTease' + i)
+                .attr('class', 'bucketTease')
+                .transition()
+                .style('fill-opacity', (datum) => (datum.currentFunding + datum.tease >= datum.tier1Goal) ? 1 : 0.5)
+                .attr('r', (datum) => Math.sqrt((datum.tease > 0 ? datum.currentFunding + datum.tease : 0)*fundingScale));
+                                
+            bucketGroups.append('text')
+                .attr('class', 'bucketText')
+                .text((datum) => Math.round((datum.currentFunding/datum.tier1Goal)*100) + "%")
+                
+        },
+        function(updatingBuckets){
+            updatingBuckets.selectAll('.bucketFill')
+                .transition()
+                .style('fill-opacity', (datum) => (datum.currentFunding == datum.tier1Goal) ? 1 : 0.5)
+                .attr('r', (datum) => Math.sqrt(datum.currentFunding*fundingScale))
+                
+            updatingBuckets.selectAll('.bucketTease')
+                .transition()
+                .style('fill-opacity', (datum) => (datum.currentFunding + datum.tease >= datum.tier1Goal) ? 1 : 0.5)
+                .attr('r', (datum) => Math.sqrt((datum.tease > 0 ? datum.currentFunding + datum.tease : 0)*fundingScale));
+                
+            updatingBuckets.selectAll('text')
+                .text((datum) => Math.round((datum.currentFunding/datum.tier1Goal)*100) + "%")
+        },
+        function(exitingBuckets){
+            exitingBuckets.remove();
+        });
+
+    return bucketDots;
+}
 
 function initalizeSimulations(campaign){
-    //Map our data for use in visualization
-    let bucketData = campaign.buckets.map((e) => {return {name: e[0], currentFunding: e[1], tier1Goal: e[2], tier2Goal: e[3], tier3Goal: e[4], tease: 0, radius: Math.sqrt(e[2]*fundingScale)}	})
-    bucketData = bucketData.filter((e) => {return e.name}); //Filter out those that don't have a name.
 
     let coinData = campaign.coins.map(function(e){	return {id: e.ID, value: e.currentValue, multiplier: e.multiplier, lastScanned: e.lastScanned, lastScannedBy: e.lastScannedBy, radius: Math.sqrt(e.currentValue*fundingScale)}	}); 
     const VALUE_PER_PIXEL = coinData.reduce((accumulator, currentCoin) => accumulator + currentCoin.value, 0)/(SVG_WIDTH*SVG_HEIGHT);
     console.log(`Value per pixel: ${VALUE_PER_PIXEL}`);
 
     //Set up our Buckets' force simulation
-    let bucketSimulation = d3.forceSimulation(bucketData)
-        //.velocityDecay(0.08)
-        //.alphaDecay(0.003)
-        //.force('centerB', d3.forceCenter(500, 300))
-        .force('collideB', d3.forceCollide().radius((datum) => {
-            return Math.sqrt(datum.tier1Goal*fundingScale) + 0.1;
-        }).strength(1))
-        .force('x', d3.forceX((datum, index) => {
-            return (TABLE_RADIUS+datum.radius*2/*Math.sqrt(datum.tier1Goal*fundingScale)*/)*Math.cos(2*Math.PI/bucketData.length * index) + SVG_WIDTH/2;
-        }).strength(0.01))
-        .force('y', d3.forceY((datum, index) => {
-            return (TABLE_RADIUS+datum.radius*2/*Math.sqrt(datum.tier1Goal*fundingScale)*/)*Math.sin(2*Math.PI/bucketData.length * index) + SVG_HEIGHT/2;
-        }).strength(0.01))
-        .on('tick', () => {
-            bucketTicksPerSec++;
-            bucketsGroup.selectAll('circle')
-                .attr('cx', (datum, index, elements) => Math.round(datum.x*10)/10)
-                .attr('cy', (datum, index, elements) => Math.round(datum.y*10)/10);
-            bucketsGroup.selectAll('image')
-                .attr('x', (datum, index, elements) => Math.round(datum.x*10)/10 - datum.radius)
-                .attr('y', (datum, index, elements) => Math.round(datum.y*10)/10 - datum.radius)
-            bucketsGroup.selectAll('text')
-                .attr('x', (datum) => Math.round(datum.x))
-                .attr('y', (datum) => Math.round(datum.y))
-        });
 
     //Set up our coins' force simulation
     let coinSimulation = d3.forceSimulation(coinData)
@@ -376,79 +411,6 @@ function initalizeSimulations(campaign){
             //.style('fill', '#00FF00CC');
     }refreshCoins();
 
-    //(Re)join our bucket data to its elements
-    function refreshBuckets(){
-        let bucketDots = bucketsGroup.selectAll('g').data(bucketData, function(datum, index, temp){
-            return datum.index;
-        }).join(
-            function(enteringBuckets){
-                let bucketGroups = enteringBuckets.append('g');
-                
-                bucketGroups.append('svg:image')
-                    .attr('class', 'bucketImage')
-                    .attr('xlink:href',  'https://spark-coin.com/public/Bucket.png')
-                    .attr('height', (datum) => datum.radius*2)//Math.sqrt(datum.tier1Goal*fundingScale)*2) //Diameter is 2X the size of the circle radius later.
-                    .attr('width', (datum) => datum.radius*2)//Math.sqrt(datum.tier1Goal*fundingScale)*2)
-                
-                bucketGroups.append('circle')
-                    .attr('id', (d,i) => 'bucketCircle' + i)
-                    .attr('class', 'bucketCircle')
-                    .on('mouseover',  function (event, subject){
-                        if(dragging) return; 
-                        d3.select(event.currentTarget)
-                            .style('stroke', '#FF0000FF');
-                        refreshTooltip(event, subject);			
-                    })
-                    .on('mousemove',  function (event, subject){
-                        if(dragging) return; 
-                        refreshTooltip(event, subject)
-                    })
-                    .on('mouseleave',  function (event, subject){
-                        if(dragging) return; 
-                        d3.select(event.currentTarget)
-                            .style('stroke', '#000000FF');
-                        refreshTooltip(event, subject);
-                    })
-                    .transition()	
-                    .attr('r', (datum) => datum.radius)
-
-                bucketGroups.append('circle')
-                    .attr('id', (d,i) => 'bucketFill' + i)
-                    .attr('class', 'bucketFill')			
-                    .transition()
-                    .style('fill-opacity', (datum) => (datum.currentFunding == datum.tier1Goal) ? 1 : 0.5)
-                    .attr('r', (datum) => Math.sqrt(datum.currentFunding*fundingScale))
-
-                bucketGroups.append('circle')
-                    .attr('id', (d,i) => 'bucketTease' + i)
-                    .attr('class', 'bucketTease')
-                    .transition()
-                    .style('fill-opacity', (datum) => (datum.currentFunding + datum.tease >= datum.tier1Goal) ? 1 : 0.5)
-                    .attr('r', (datum) => Math.sqrt((datum.tease > 0 ? datum.currentFunding + datum.tease : 0)*fundingScale));
-                                    
-                bucketGroups.append('text')
-                    .attr('class', 'bucketText')
-                    .text((datum) => Math.round((datum.currentFunding/datum.tier1Goal)*100) + "%")
-                    
-            },
-            function(updatingBuckets){
-                updatingBuckets.selectAll('.bucketFill')
-                    .transition()
-                    .style('fill-opacity', (datum) => (datum.currentFunding == datum.tier1Goal) ? 1 : 0.5)
-                    .attr('r', (datum) => Math.sqrt(datum.currentFunding*fundingScale))
-                    
-                updatingBuckets.selectAll('.bucketTease')
-                    .transition()
-                    .style('fill-opacity', (datum) => (datum.currentFunding + datum.tease >= datum.tier1Goal) ? 1 : 0.5)
-                    .attr('r', (datum) => Math.sqrt((datum.tease > 0 ? datum.currentFunding + datum.tease : 0)*fundingScale));
-                    
-                updatingBuckets.selectAll('text')
-                    .text((datum) => Math.round((datum.currentFunding/datum.tier1Goal)*100) + "%")
-            },
-            function(exitingBuckets){
-                exitingBuckets.remove();
-            });
-    }refreshBuckets();
 }
 
 function timeDiffMessage(timeDelta){
