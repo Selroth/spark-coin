@@ -19,7 +19,7 @@ let fs = require('fs');
 let httpServer = require('http').createServer(httpHandler) //We tell NodeJS that we're using it for http services.
 let io = require('socket.io')(httpServer); //We connect web socket service, Socket IO, to the http server
 let crypto = require('crypto');
-let { google } = require('googleapis');  //Google API required for spreadsheet manipulation
+let { google } = (!process.env.CODESPACES) ? require('googleapis') : { }  //Google API required for spreadsheet manipulation
 
 //Global variables/configuration
 const HTTP_SERVER_ADDRESS = "localhost";  //Even when deployed to spark-coin.com, this will be localhost as Apache will be the initial handler to http & https requests and pass it to NodeJS.  This is for my VPS, but your hosting environment may differ.

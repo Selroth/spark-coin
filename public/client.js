@@ -1,7 +1,7 @@
 const TIME_OPTIONS = { hour12: false, hour: '2-digit', minute: '2-digit', fractionalSecondDigits: 3 }
 const fundingScale = 0.02;
 
-let tableGroup, coinsGroup, guiGroup;
+let tableGroup, guiGroup;
 
 let tableTop
 
@@ -11,7 +11,8 @@ const TABLE_RADIUS = 250;
 const MIN_ZOOM = 0.50;
 const MAX_ZOOM = 50;
 
-let bucketSimulation, bucketData, bucketsGroup;
+let bucketsSimulation, bucketData, bucketsGroup;
+let coinsSimulation, coinData, coinsGroup;
 
 let bucketTicksPerSec = 0, coinTicksPerSec = 0;
 let dragBucketIndex = -1;
@@ -65,7 +66,7 @@ function redrawCampaign(){
 
     $('#timelineDuring').progressbar({value:true});
     
-    //console.log(`${bucketTicksPerSec} / ${coinTicksPerSec}`); bucketTicksPerSec = 0; coinTicksPerSec = 0;
+    console.log(`${bucketTicksPerSec} / ${coinTicksPerSec}`); bucketTicksPerSec = 0; coinTicksPerSec = 0;
 }
 
 function refreshTooltip(event, subject){
@@ -92,9 +93,9 @@ function refreshTooltip(event, subject){
             if(currentTargetClass == "bucketCircle"){
                 tooltip.html(`Bucket "${subject.name}"<br>$${Math.round(subject.currentFunding)} of $${Math.round(subject.tier1Goal)} (tier 1)`)
             }
-            else if(currentTargetClass == "coinCircle"){
+            /*else if(currentTargetClass == "coinCircle"){
                 tooltip.html(`Coin #${currentTargetID.match(/\d+/g)[0]}'s value: $${Math.round(subject.value)}`)
-            }
+            }*/
         }
                     
     }else{
@@ -103,18 +104,18 @@ function refreshTooltip(event, subject){
     }
 }
 
-function initializeBucketSimulation(){ 
-    let bucketSimulation = d3.forceSimulation(bucketData)
+function initializeBucketsSimulation(){ 
+    bucketsSimulation = d3.forceSimulation(bucketData)
         .velocityDecay(.3)
         .alphaDecay(0.01)
         .force('collideB', d3.forceCollide().radius((datum) => {
-            return Math.sqrt(datum.tier1Goal*fundingScale) + 0.1;
+            return Math.sqrt(datum.tier1Goal*fundingScale) + 0.2;
         }).strength(1))
         .force('x', d3.forceX((datum, index) => {
-            return (TABLE_RADIUS+datum.radius*2/*Math.sqrt(datum.tier1Goal*fundingScale)*/)*Math.cos(2*Math.PI/bucketData.length * index) + SVG_WIDTH/2;
+            return (TABLE_RADIUS+datum.radius+20/*Math.sqrt(datum.tier1Goal*fundingScale)*/)*Math.cos(2*Math.PI/bucketData.length * index) + SVG_WIDTH/2;
         }).strength(0.05))
         .force('y', d3.forceY((datum, index) => {
-            return (TABLE_RADIUS+datum.radius*2/*Math.sqrt(datum.tier1Goal*fundingScale)*/)*Math.sin(2*Math.PI/bucketData.length * index) + SVG_HEIGHT/2;
+            return (TABLE_RADIUS+datum.radius+20/*Math.sqrt(datum.tier1Goal*fundingScale)*/)*Math.sin(2*Math.PI/bucketData.length * index) + SVG_HEIGHT/2;
         }).strength(0.05))
         .on('tick', () => {
             bucketTicksPerSec++;
@@ -129,7 +130,7 @@ function initializeBucketSimulation(){
                 .attr('y', (datum) => Math.round(datum.y))
         });
 
-    return bucketSimulation;
+    return bucketsSimulation;
 }
 
 //(Re)join our bucket data to its elements
@@ -208,16 +209,9 @@ function refreshBuckets(){
     return bucketDots;
 }
 
-function initalizeSimulations(campaign){
-
-    let coinData = campaign.coins.map(function(e){	return {id: e.ID, value: e.currentValue, multiplier: e.multiplier, lastScanned: e.lastScanned, lastScannedBy: e.lastScannedBy, radius: Math.sqrt(e.currentValue*fundingScale)}	}); 
-    const VALUE_PER_PIXEL = coinData.reduce((accumulator, currentCoin) => accumulator + currentCoin.value, 0)/(SVG_WIDTH*SVG_HEIGHT);
-    console.log(`Value per pixel: ${VALUE_PER_PIXEL}`);
-
-    //Set up our Buckets' force simulation
-
+function initalizeCoinsSimulations(){
     //Set up our coins' force simulation
-    let coinSimulation = d3.forceSimulation(coinData)
+    coinsSimulation = d3.forceSimulation(coinData)
         //.velocityDecay(0.1)
         //.alphaDecay(0.1)
         .force('center',  d3.forceCenter(SVG_WIDTH/2, SVG_HEIGHT/2).strength(0.1))
@@ -247,183 +241,184 @@ function initalizeSimulations(campaign){
                 .attr('y', (datum) => Math.round((datum.y - datum.radius*0.8)*10)/10)	
         });
 
-    //This function is called on each new coin dot to enable their dragging behavior
-    function dragHandler(){
+    return coinsSimulation;
+
+}
+
+//This function is called on each new coin dot to enable their dragging behavior
+function dragHandler(){
+    
+return d3.drag()
+    .on("start", (event, subject) => {
+        event.sourceEvent.preventDefault();
+        dragging = true;
+        coinsGroup.attr("cursor", "grabbing");
+        let draggedCircle = d3.select(event.sourceEvent.currentTarget).select('circle');
+        draggedCircle
+            .style('fill', '#FF0000')
+            .style('fill-opacity', 0.5)
+
+        //"Reheat" the simulations for interactive animation!
+        coinsSimulation.alpha(1).alphaTarget(0).restart();
+        //bucketsSimulation.alphaTarget(1);							
+    })
+    .on("drag", (event, subject) => {
+        event.sourceEvent.preventDefault();
         
-        return d3.drag()
-            .on("start", (event, subject) => {
-                event.sourceEvent.preventDefault();
-                dragging = true;
-                coinsGroup.attr("cursor", "grabbing");
-                let draggedCircle = d3.select(event.sourceEvent.currentTarget).select('circle');
-                draggedCircle
-                    .style('fill', '#FF0000')
-                    .style('fill-opacity', 0.5)
+        //Chase the cursor
+        subject.forceX = event.x;							subject.forceY = event.y;
+        coinsSimulation.force('x').initialize(coinData);		coinsSimulation.force('y').initialize(coinData);
 
-                //"Reheat" the simulations for interactive animation!
-                coinSimulation.alpha(1).alphaTarget(0).restart();
-                //bucketSimulation.alphaTarget(1);							
-            })
-            .on("drag", (event, subject) => {
-                event.sourceEvent.preventDefault();
-                
-                //Chase the cursor
-                subject.forceX = event.x;							subject.forceY = event.y;
-                coinSimulation.force('x').initialize(coinData);		coinSimulation.force('y').initialize(coinData);
-
-                //See if we dragged over any buckets
-                let newDraggedOverElements = d3.select(document.elementsFromPoint(event.sourceEvent.clientX || event.sourceEvent.touches[0].clientX, event.sourceEvent.clientY || event.sourceEvent.touches[0].clientY)).nodes()[0];
-                let bucketElement = newDraggedOverElements.find((e) => {
-                    let id = e.getAttribute('id')
-                    if (id) return id.search(/bucketCircle/g) >= 0;
-                });
-                //If there is a bucketElement, grab the index from the id attribute using Regex; otherwise use -1 to signify no bucket
-                let newDragBucketIndex = bucketElement ? bucketElement.getAttribute('id').match(/\d+/g)[0] : -1; 
-                
-                //See if our targets changed
-                if (dragBucketIndex != newDragBucketIndex){ 
-                    if(dragBucketIndex >= 0) bucketData[dragBucketIndex].tease = 0; //We're no longer teasing the old bucket
-                    
-                    if(newDragBucketIndex >= 0){ //If we're over a bucket, snap to its center
-                        let goalGap = Math.max(bucketData[newDragBucketIndex].tier1Goal - bucketData[newDragBucketIndex].currentFunding, 0); //Don't be negative if the bucket is already overflowed.
-                        let fillAmount = Math.min(subject.value, goalGap); //Constrain our fill amount to avoid over-flowing.
-                        
-                        bucketData[newDragBucketIndex].tease += fillAmount;
-                        subject.fx = bucketElement.getAttribute('cx') - 0;//subject.radius;
-                        subject.fy = bucketElement.getAttribute('cy') - 0;//subject.radius;
-                    }else{	//Otherwise, make sure it's released.
-                        subject.fx = null;	subject.fy = null;	
-                    }		
-                    
-                    //console.log(`Drag target changed from ${dragBucketIndex >= 0 ? 'bucket' + dragBucketIndex : 'nothing'} to ${newDragBucketIndex >= 0 ? 'bucket' + newDragBucketIndex : 'nothing'}.`);
-                    dragBucketIndex = newDragBucketIndex;
-                    
-                    
-                }
-                refreshBuckets(); 
-
-                //"Reheat" the simulations for interactive animation!
-                coinSimulation.alpha(1).alphaTarget(0).restart();
-                //bucketSimulation.alphaTarget(1);						
-            })
-            .on("end", (event, subject) => {
-                dragging = false;
-                event.sourceEvent.preventDefault();
-                
-                coinsGroup.attr("cursor", "grab"); //Change the cursor back
-
-                //Check to see if we dragged onto anything (probably a bucket)
-                if(dragBucketIndex >= 0){					
-                    bucketData[dragBucketIndex].tease = 0 //We're no longer teasing.
-                    
-                    //Calculate our fill amount.
-                    let goalGap = Math.max(bucketData[dragBucketIndex].tier1Goal - bucketData[dragBucketIndex].currentFunding, 0); //Don't be negative if the bucket is already overflowed.
-                    let fillAmount = Math.min(subject.value, goalGap); //Constrain our fill amount to avoid over-flowing.
-                    
-                    //If there is actually any value to transfer, let's execute the change
-                    if (fillAmount > 0){
-                    
-                        //The amount that's added to the bucket is deducted from the coin.
-                        bucketData[dragBucketIndex].currentFunding += fillAmount;
-                        subject.value -= fillAmount;
-                        subject.radius = Math.sqrt(subject.value*fundingScale);
-                                                                
-                        //If there's nothing left on the coin, delete it.
-                        if (subject.value <= 0){
-                            //coinData.splice(subject.index, 1);
-                        }			
-                        
-                        //Our coins probably changed quite a bit, so re-initialize the forces
-                        coinSimulation.force('collide').initialize(coinData);
-                        coinSimulation.force('center').initialize(coinData); 
-                        
-                        console.log(`Coin #${subject.index} dropped onto ${dragBucketIndex} filling the remaining $${goalGap} with $${fillAmount} (now $${bucketData[dragBucketIndex].currentFunding}, ${Math.round(bucketData[dragBucketIndex].currentFunding/bucketData[dragBucketIndex].tier1Goal*100)}% full).`)
-                    }else console.log(`Coin #${subject.index} dropped onto ${dragBucketIndex}, but nothing was added.`);
-                                    
-                }else console.log(`Coin #${subject.index} dropped onto nothing.`)
+        //See if we dragged over any buckets
+        let newDraggedOverElements = d3.select(document.elementsFromPoint(event.sourceEvent.clientX || event.sourceEvent.touches[0].clientX, event.sourceEvent.clientY || event.sourceEvent.touches[0].clientY)).nodes()[0];
+        let bucketElement = newDraggedOverElements.find((e) => {
+            let id = e.getAttribute('id')
+            if (id) return id.search(/bucketCircle/g) >= 0;
+        });
+        //If there is a bucketElement, grab the index from the id attribute using Regex; otherwise use -1 to signify no bucket
+        let newDragBucketIndex = bucketElement ? bucketElement.getAttribute('id').match(/\d+/g)[0] : -1; 
+        
+        //See if our targets changed
+        if (dragBucketIndex != newDragBucketIndex){ 
+            if(dragBucketIndex >= 0) bucketData[dragBucketIndex].tease = 0; //We're no longer teasing the old bucket
             
-                refreshCoins();
-                refreshBuckets(); 
+            if(newDragBucketIndex >= 0){ //If we're over a bucket, snap to its center
+                let goalGap = Math.max(bucketData[newDragBucketIndex].tier1Goal - bucketData[newDragBucketIndex].currentFunding, 0); //Don't be negative if the bucket is already overflowed.
+                let fillAmount = Math.min(subject.value, goalGap); //Constrain our fill amount to avoid over-flowing.
                 
-                //Stop chasing the cursor
-                subject.forceX = null;
-                subject.forceY = null;
-                coinSimulation.force('x').initialize(coinData);
-                coinSimulation.force('y').initialize(coinData);
-                //coinSimulation.alphaTarget(0).alpha(0.3).restart();
-                //bucketSimulation.alphaTarget(0).alpha(0.3).restart();
-            });
-    }
+                bucketData[newDragBucketIndex].tease += fillAmount;
+                subject.fx = bucketElement.getAttribute('cx') - 0;//subject.radius;
+                subject.fy = bucketElement.getAttribute('cy') - 0;//subject.radius;
+            }else{	//Otherwise, make sure it's released.
+                subject.fx = null;	subject.fy = null;	
+            }		
+            
+            //console.log(`Drag target changed from ${dragBucketIndex >= 0 ? 'bucket' + dragBucketIndex : 'nothing'} to ${newDragBucketIndex >= 0 ? 'bucket' + newDragBucketIndex : 'nothing'}.`);
+            dragBucketIndex = newDragBucketIndex;
+            
+            
+        }
+        refreshBuckets(); 
 
-    //(re)join the coin data to its elements
-    function refreshCoins(){
-        let coinDots = coinsGroup.selectAll('g').data(coinData, function(datum, index, temp){
-            return datum.index;
-        }).join(
-            function(enteringCoins){ //New coins
-                let coinGroups = enteringCoins.append('g');
-                
-                coinGroups.append('svg:image')
-                    .attr('id', (d,i) => 'coinImage' + i)						   
-                    .attr('class', 'coinImage')
-                    .attr('xlink:href',  'https://spark-coin.com/public/Heads.png')
-                    .attr('height', (datum) => datum.radius*2)//Math.sqrt(datum.value*fundingScale)*2)
-                    .attr('width', (datum) => datum.radius*2)//Math.sqrt(datum.value*fundingScale)*2);
-                    
-                coinGroups.append('circle')
-                    .attr('id', (d,i) => 'coinCircle' + i)
-                    .attr('class', 'coinCircle')
-                    .on('mouseover',  (event, subject) => {if(dragging) return; event.currentTarget.style.stroke = '#FF0000FF'; refreshTooltip(event, subject);})
-                    .on('mousemove',  (event, subject) => {if(dragging) return; refreshTooltip(event, subject);})
-                    .on('mouseleave',  (event, subject) => {if(dragging) return; event.currentTarget.style.stroke = '#00FFFFFF'; refreshTooltip(event, subject);})
-                    .on("click", (event, subject) => event.currentTarget.style.opacity = 1)
-                    .attr('r', (datum) => datum.radius)//Math.sqrt(datum.value*fundingScale))
-                    .style('fill', '#00000000');
-                    
-                coinGroups.append('text')
-                    .attr('class', 'coinValueText')
-                    .attr("text-anchor", "middle")
-                    .style('font-size', (datum) => datum.radius*0.2 + "px")
-                    .text((datum) => datum.value.toLocaleString(navigator.language, {style: "currency", currency: "USD"}))
-                    
-                coinGroups.append('text')
-                    .attr('class', 'coinIDText')
-                    .attr("text-anchor", "middle")
-                    .style('font-size', (datum) => datum.radius*0.2 + "px")
-                    .text((datum) => "#" + datum.id)
-                    
-                coinGroups.call(dragHandler())
-                
-                console.log(enteringCoins.size() + " coins created.");
-            },
-            function(updatingCoins){
-                updatingCoins.selectAll('image')
-                    .attr('height', (datum) => datum.radius*2)//Math.sqrt(datum.value*fundingScale)*2)
-                    .attr('width', (datum) => datum.radius*2)//Math.sqrt(datum.value*fundingScale)*2);		
-                    updatingCoins.selectAll('circle')
-                    .attr('r', (datum) => datum.radius)//Math.sqrt(datum.value*fundingScale))
-                    .style('fill', '#00000000');
-                updatingCoins.selectAll('.coinValueText')
-                    .style('font-size', (datum) => datum.radius*0.2 + "px")
-                    .text((datum) => datum.value.toLocaleString(navigator.language, {style: "currency", currency: "USD"}))
-                    
-                updatingCoins.selectAll('.coinIDText')
-                    .attr('class', 'coinIDText')
-                    .attr("text-anchor", "middle")
-                    .style('font-size', (datum) => datum.radius*0.2 + "px")
-                    .text((datum) => "#" + datum.id)
-                    
-                console.log(updatingCoins.size() +  " coins updated.");
-            },
-            function(exitingCoins){
-                exitingCoins.remove();
-                console.log(exitingCoins.size() + " coins deleted.");
-            });
-                    
-        //d3.select('#coinCircle0')
-            //.style('fill', '#00FF00CC');
-    }refreshCoins();
+        //"Reheat" the simulations for interactive animation!
+        coinsSimulation.alpha(1).alphaTarget(0).restart();
+        //bucketsSimulation.alphaTarget(1);						
+    })
+    .on("end", (event, subject) => {
+        dragging = false;
+        event.sourceEvent.preventDefault();
+        
+        coinsGroup.attr("cursor", "grab"); //Change the cursor back
 
+        //Check to see if we dragged onto anything (probably a bucket)
+        if(dragBucketIndex >= 0){					
+            bucketData[dragBucketIndex].tease = 0 //We're no longer teasing.
+            
+            //Calculate our fill amount.
+            let goalGap = Math.max(bucketData[dragBucketIndex].tier1Goal - bucketData[dragBucketIndex].currentFunding, 0); //Don't be negative if the bucket is already overflowed.
+            let fillAmount = Math.min(subject.value, goalGap); //Constrain our fill amount to avoid over-flowing.
+            
+            //If there is actually any value to transfer, let's execute the change
+            if (fillAmount > 0){
+            
+                //The amount that's added to the bucket is deducted from the coin.
+                bucketData[dragBucketIndex].currentFunding += fillAmount;
+                subject.value -= fillAmount;
+                subject.radius = Math.sqrt(subject.value*fundingScale);
+                                                        
+                //If there's nothing left on the coin, delete it.
+                if (subject.value <= 0){
+                    //coinData.splice(subject.index, 1);
+                }			
+                
+                //Our coins probably changed quite a bit, so re-initialize the forces
+                coinsSimulation.force('collide').initialize(coinData);
+                coinsSimulation.force('center').initialize(coinData); 
+                
+                console.log(`Coin #${subject.index} dropped onto ${dragBucketIndex} filling the remaining $${goalGap} with $${fillAmount} (now $${bucketData[dragBucketIndex].currentFunding}, ${Math.round(bucketData[dragBucketIndex].currentFunding/bucketData[dragBucketIndex].tier1Goal*100)}% full).`)
+            }else console.log(`Coin #${subject.index} dropped onto ${dragBucketIndex}, but nothing was added.`);
+                            
+        }else console.log(`Coin #${subject.index} dropped onto nothing.`)
+    
+        refreshCoins();
+        refreshBuckets(); 
+        
+        //Stop chasing the cursor
+        subject.forceX = null;
+        subject.forceY = null;
+        coinsSimulation.force('x').initialize(coinData);
+        coinsSimulation.force('y').initialize(coinData);
+        //coinsSimulation.alphaTarget(0).alpha(0.3).restart();
+        //bucketsSimulation.alphaTarget(0).alpha(0.3).restart();
+    });
+}
+
+function refreshCoins(){
+    let coinDots = coinsGroup.selectAll('g').data(coinData, function(datum, index, temp){
+        return datum.index;
+    }).join(
+        function(enteringCoins){ //New coins
+            let coinGroups = enteringCoins.append('g');
+            
+            coinGroups.append('svg:image')
+                .attr('id', (d,i) => 'coinImage' + i)						   
+                .attr('class', 'coinImage')
+                .attr('xlink:href',  'https://spark-coin.com/public/Heads.png')
+                .attr('height', (datum) => datum.radius*2)//Math.sqrt(datum.value*fundingScale)*2)
+                .attr('width', (datum) => datum.radius*2)//Math.sqrt(datum.value*fundingScale)*2);
+                
+            coinGroups.append('circle')
+                .attr('id', (d,i) => 'coinCircle' + i)
+                .attr('class', 'coinCircle')
+                .on('mouseover',  (event, subject) => {if(dragging) return; event.currentTarget.style.stroke = '#FF0000FF'; /*refreshTooltip(event, subject);*/})
+                .on('mousemove',  (event, subject) => {if(dragging) return; /*refreshTooltip(event, subject);*/})
+                .on('mouseleave',  (event, subject) => {if(dragging) return; event.currentTarget.style.stroke = '#00FFFFFF'; /*refreshTooltip(event, subject);*/})
+                .on("click", (event, subject) => event.currentTarget.style.opacity = 1)
+                .attr('r', (datum) => datum.radius)//Math.sqrt(datum.value*fundingScale))
+                .style('fill', '#00000000');
+                
+            coinGroups.append('text')
+                .attr('class', 'coinValueText')
+                .attr("text-anchor", "middle")
+                .style('font-size', (datum) => datum.radius*0.2 + "px")
+                .text((datum) => datum.value.toLocaleString(navigator.language, {style: "currency", currency: "USD"}))
+                
+            coinGroups.append('text')
+                .attr('class', 'coinIDText')
+                .attr("text-anchor", "middle")
+                .style('font-size', (datum) => datum.radius*0.2 + "px")
+                .text((datum) => "#" + datum.id)
+                
+            coinGroups.call(dragHandler())
+            
+            console.log(enteringCoins.size() + " coins created.");
+        },
+        function(updatingCoins){
+            updatingCoins.selectAll('image')
+                .attr('height', (datum) => datum.radius*2)//Math.sqrt(datum.value*fundingScale)*2)
+                .attr('width', (datum) => datum.radius*2)//Math.sqrt(datum.value*fundingScale)*2);		
+                updatingCoins.selectAll('circle')
+                .attr('r', (datum) => datum.radius)//Math.sqrt(datum.value*fundingScale))
+                .style('fill', '#00000000');
+            updatingCoins.selectAll('.coinValueText')
+                .style('font-size', (datum) => datum.radius*0.2 + "px")
+                .text((datum) => datum.value.toLocaleString(navigator.language, {style: "currency", currency: "USD"}))
+                
+            updatingCoins.selectAll('.coinIDText')
+                .attr('class', 'coinIDText')
+                .attr("text-anchor", "middle")
+                .style('font-size', (datum) => datum.radius*0.2 + "px")
+                .text((datum) => "#" + datum.id)
+                
+            console.log(updatingCoins.size() +  " coins updated.");
+        },
+        function(exitingCoins){
+            exitingCoins.remove();
+            console.log(exitingCoins.size() + " coins deleted.");
+        });
+                
+    //d3.select('#coinCircle0')
+        //.style('fill', '#00FF00CC');
 }
 
 function timeDiffMessage(timeDelta){

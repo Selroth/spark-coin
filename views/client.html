@@ -29,6 +29,7 @@
 		#tooltip { position: fixed; white-space:nowrap; opacity: 0; background-color: #88888888; border: 2px solid black; border-radius:5px; padding: 5px; user-select: none; }
 		#tableTop { stroke: #CCCCCCFF; stroke-width: 2; vector-effect: non-scaling-stroke; pointer-events: none; filter: drop-shadow(25px 75px 5px rgb(0 0 0 / 0.5)); }
 		
+		.bucketsGroup { filter: drop-shadow(8px 25px 2px rgb(0 0 0 / 0.5)) }
 		.bucketCircle { stroke:#000000; stroke-width:4; vector-effect:non-scaling-stroke; fill-opacity:0;}
 		.bucketFill { stroke-opacity:0; fill:#00FFFF; fill-opacity:0.5; pointer-events:none;}
 		.bucketTease { stroke-opacity:0; fill:#FF0000FF; fill-opacity:1; pointer-events:none;}
@@ -71,6 +72,10 @@
 
 			//Set up our table top
 			tableGroup = SVG.append('g').attr('id', 'tableGroup');	
+
+			bucketsGroup = tableGroup.append('g').attr('id', 'bucketsGroup')
+				.style('filter', 'drop-shadow(8px 25px 5px rgb(0 0 0 / 0.5))');
+
 			tableTop = tableGroup.append('svg:image')
 				.attr('id', 'tableTop')
 				.attr('xlink:href',  'https://spark-coin.com/public/TableTop.png')
@@ -79,8 +84,7 @@
 				.attr('width', TABLE_RADIUS*2)	
 				.attr('height', TABLE_RADIUS*2)
 
-			bucketsGroup = tableGroup.append('g').attr('id', 'bucketsGroup')
-				.style('filter', 'drop-shadow(25px 75px 5px rgb(0 0 0 / 0.5))');
+
 				
 			coinsGroup = tableGroup.append('g').attr('id', 'coinsGroup').attr('cursor', 'grab')
 				.style('filter', 'drop-shadow(2px 6px 1px rgb(0 0 0 / 0.5))');;
@@ -96,9 +100,14 @@
 			bucketData = bucketData.filter((e) => {return e.name}); //Filter out those that don't have a name.
 
 			refreshBuckets();
-			initializeBucketSimulation();
+			initializeBucketsSimulation();
 
-			initalizeSimulations(campaign);
+			coinData = campaign.coins.map(function(e){	return {id: e.ID, value: e.currentValue, multiplier: e.multiplier, lastScanned: e.lastScanned, lastScannedBy: e.lastScannedBy, radius: Math.sqrt(e.currentValue*fundingScale)}	}); 
+			const VALUE_PER_PIXEL = coinData.reduce((accumulator, currentCoin) => accumulator + currentCoin.value, 0)/(SVG_WIDTH*SVG_HEIGHT);
+			console.log(`Value per pixel: ${VALUE_PER_PIXEL}`);
+
+			refreshCoins();
+			initalizeCoinsSimulations();
 
 			/*setTimeout(() => {
 				SVG.transition().duration(5000).call(
