@@ -46,18 +46,7 @@
 	<script src="https://d3js.org/d3.v7.min.js"></script>
 	<script src="/client.js"></script>
 	<script>
-		let campaign;
 		let infoDialog, form, tooltip;
-		let tableGroup, bucketsGroup, coinsGroup, guiGroup;
-		let tableTop
-
-		const SVG_WIDTH = 1000;
-		const SVG_HEIGHT = 1000;
-		const TABLE_RADIUS = 250;
-		const MIN_ZOOM = 0.50;
-		const MAX_ZOOM = 50;
-
-		let bucketSimulation;
 
 		function reloadCampaign(){
 			$("#campaignName").html(campaign.name);
@@ -103,12 +92,11 @@
 			SVG.call(ZOOM);
 
 			//Map our data for use in visualization
-			let bucketData = campaign.buckets.map((e) => {return {name: e[0], currentFunding: e[1], tier1Goal: e[2], tier2Goal: e[3], tier3Goal: e[4], tease: 0, radius: Math.sqrt(e[2]*fundingScale)}	})
+			bucketData = campaign.buckets.map((e) => {return {name: e[0], currentFunding: e[1], tier1Goal: e[2], tier2Goal: e[3], tier3Goal: e[4], tease: 0, radius: Math.sqrt(e[2]*fundingScale)}	})
 			bucketData = bucketData.filter((e) => {return e.name}); //Filter out those that don't have a name.
 
-			refreshBuckets(bucketsGroup, bucketData);
-			bucketSimulation = initializeBucketSimulation(bucketsGroup, bucketData);
-
+			refreshBuckets();
+			initializeBucketSimulation();
 
 			initalizeSimulations(campaign);
 

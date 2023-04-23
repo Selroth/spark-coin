@@ -290,60 +290,6 @@ function httpHandler(req, res) {
 	let filePath = "";
 	switch(true){
 		case (url.match(/^\/[a-zA-Z0-9]{2,3}\/[a-zA-Z0-9]{5}-\S+$/) !== null):
-			/*
-						
-			let scanCampaignID = url.slice(1, 4); //XXX
-			let scanID = url.slice(5, 10); //YYYYY
-			let scanSecret = url.slice(11, 27); //ZZZZZZZZZZZZZZZ
-			
-			try {
-				await Promise.all([campaigns[scanCampaignID].readSheet()])
-					.then(async () => {
-
-						let coinIndex = campaigns[scanCampaignID].coins.findIndex((e) => e.ID == scanID); //Find the coin the client is claiming to be for
-						let coin = campaigns[scanCampaignID].coins[coinIndex];
-						let scanHash = crypto.createHash('md5').update(scanSecret).digest().toString("hex").toUpperCase(); //Run the MD5 function on the provided secret to get the hash.
-
-						//If the hashes match, authentication was successful!
-						if (coin && coin.secretHash == scanHash) {
-							echo(scanCampaignID, '#ALL', `[${clientName}]'s hash found!  Delivering client..."`);
-
-							//Increment the scan count on the spreadsheet, if appropriate.
-							let serialDate = 25569.0 + ((requestDate.getTime() - (requestDate.getTimezoneOffset() * 60 * 1000)) / (1000 * 60 * 60 * 24)); //Convert the javascript Date object to a spreadsheet serialized date.  
-							await campaigns[scanCampaignID].updateCoin(coinIndex, coin, clientName, serialDate);
-							
-							//Let's pre-load the client with some useful info and log history
-							let preamble = "";
-							serverLog.forEach((e) => { preamble += "<li class='msgLI'>" + e + "</li>"; });
-
-							res.render("index.ejs", {
-								campaignSpreadsheetID: JSON.stringify(campaigns[scanCampaignID].spreadsheetId),
-								campaignSpreadsheetURL: JSON.stringify(campaigns[scanCampaignID].spreadsheetURL),
-								campaignSpreadsheetLayout: JSON.stringify(campaigns[scanCampaignID].spreadsheetLayout),
-								campaignSheetId: JSON.stringify(campaigns[scanCampaignID].sheetId),
-								campaignName: JSON.stringify(campaigns[scanCampaignID].name),
-								campaignInfo: JSON.stringify(campaigns[scanCampaignID].info),
-								campaignCoins: JSON.stringify(campaigns[scanCampaignID].coins),
-								campaignBuckets: JSON.stringify(campaigns[scanCampaignID].buckets),
-								campaignMarketStartTime: campaigns[scanCampaignID].marketStartTime,
-								campaignMarketEndTime: campaigns[scanCampaignID].marketEndTime,
-								preamble,
-								clientName: req.body.clientName,
-								coinCampaignID: scanCampaignID,
-								coinID: req.body.coinID,
-								coinSecret: req.body.coinSecret,				
-								clientDebug: DEBUG
-							}); 					
-							
-						} else {
-							echo(scanCampaignID, '#ALL', `[${clientName}] failed to authenticate coin ${scanID}!"`);			
-						}
-
-					})
-			} catch (err) {
-				console.log(`> Failed to send response to ${clientName} @ ${scanCampaignID}/${scanID}/${scanSecret}`);
-				console.log(err);
-			}*/
 			 filePath = path.join(__dirname, 'views/client.html');
 			 break;
 		case (url === "/"):
@@ -424,24 +370,6 @@ io.on('connection', async (socket) => {
 			let preamble = "";
 			serverLog.forEach((e) => { preamble += "<li class='msgLI'>" + e + "</li>"; });
 
-			res.render("index.ejs", {
-				campaignSpreadsheetID: JSON.stringify(campaigns[scanCampaignID].spreadsheetId),
-				campaignSpreadsheetURL: JSON.stringify(campaigns[scanCampaignID].spreadsheetURL),
-				campaignSpreadsheetLayout: JSON.stringify(campaigns[scanCampaignID].spreadsheetLayout),
-				campaignSheetId: JSON.stringify(campaigns[scanCampaignID].sheetId),
-				campaignName: JSON.stringify(campaigns[scanCampaignID].name),
-				campaignInfo: JSON.stringify(campaigns[scanCampaignID].info),
-				campaignCoins: JSON.stringify(campaigns[scanCampaignID].coins),
-				campaignBuckets: JSON.stringify(campaigns[scanCampaignID].buckets),
-				campaignMarketStartTime: campaigns[scanCampaignID].marketStartTime,
-				campaignMarketEndTime: campaigns[scanCampaignID].marketEndTime,
-				preamble,
-				clientName: req.body.clientName,
-				coinCampaignID: scanCampaignID,
-				coinID: req.body.coinID,
-				coinSecret: req.body.coinSecret,				
-				clientDebug: DEBUG
-			}); 					
 			*/
 		} else {
 			echo('#' + coinCampaignID, 'SocketIO', `\x1b[31m[${clientName}]\x1b[0m failed to authenticate coin \x1b[32m<${coinID}>\x1b[0m!`);			

@@ -1,7 +1,23 @@
 const TIME_OPTIONS = { hour12: false, hour: '2-digit', minute: '2-digit', fractionalSecondDigits: 3 }
 const fundingScale = 0.02;
 
+let tableGroup, coinsGroup, guiGroup;
+
+let tableTop
+
+const SVG_WIDTH = 1000;
+const SVG_HEIGHT = 1000;
+const TABLE_RADIUS = 250;
+const MIN_ZOOM = 0.50;
+const MAX_ZOOM = 50;
+
+let bucketSimulation, bucketData, bucketsGroup;
+
 let bucketTicksPerSec = 0, coinTicksPerSec = 0;
+let dragBucketIndex = -1;
+let dragging = false;
+
+let campaign;
 
 function echo(packet){
     const msgLI =document.createElement("li");
@@ -52,7 +68,6 @@ function redrawCampaign(){
     //console.log(`${bucketTicksPerSec} / ${coinTicksPerSec}`); bucketTicksPerSec = 0; coinTicksPerSec = 0;
 }
 
-
 function refreshTooltip(event, subject){
     let currentTarget = event.currentTarget || event.sourceEvent.currentTarget;
     if (currentTarget){
@@ -88,37 +103,37 @@ function refreshTooltip(event, subject){
     }
 }
 
-function initializeBucketSimulation(bucketsGroup, bucketData){ 
+function initializeBucketSimulation(){ 
     let bucketSimulation = d3.forceSimulation(bucketData)
-    .velocityDecay(1)
-    .alphaDecay(0.01)
-    .force('collideB', d3.forceCollide().radius((datum) => {
-        return Math.sqrt(datum.tier1Goal*fundingScale) + 0.1;
-    }).strength(1))
-    .force('x', d3.forceX((datum, index) => {
-        return (TABLE_RADIUS+datum.radius*2/*Math.sqrt(datum.tier1Goal*fundingScale)*/)*Math.cos(2*Math.PI/bucketData.length * index) + SVG_WIDTH/2;
-    }).strength(0.05))
-    .force('y', d3.forceY((datum, index) => {
-        return (TABLE_RADIUS+datum.radius*2/*Math.sqrt(datum.tier1Goal*fundingScale)*/)*Math.sin(2*Math.PI/bucketData.length * index) + SVG_HEIGHT/2;
-    }).strength(0.05))
-    .on('tick', () => {
-        bucketTicksPerSec++;
-        bucketsGroup.selectAll('circle')
-            .attr('cx', (datum, index, elements) => Math.round(datum.x*10)/10)
-            .attr('cy', (datum, index, elements) => Math.round(datum.y*10)/10);
-        bucketsGroup.selectAll('image')
-            .attr('x', (datum, index, elements) => Math.round(datum.x*10)/10 - datum.radius)
-            .attr('y', (datum, index, elements) => Math.round(datum.y*10)/10 - datum.radius)
-        bucketsGroup.selectAll('text')
-            .attr('x', (datum) => Math.round(datum.x))
-            .attr('y', (datum) => Math.round(datum.y))
-    });
+        .velocityDecay(.3)
+        .alphaDecay(0.01)
+        .force('collideB', d3.forceCollide().radius((datum) => {
+            return Math.sqrt(datum.tier1Goal*fundingScale) + 0.1;
+        }).strength(1))
+        .force('x', d3.forceX((datum, index) => {
+            return (TABLE_RADIUS+datum.radius*2/*Math.sqrt(datum.tier1Goal*fundingScale)*/)*Math.cos(2*Math.PI/bucketData.length * index) + SVG_WIDTH/2;
+        }).strength(0.05))
+        .force('y', d3.forceY((datum, index) => {
+            return (TABLE_RADIUS+datum.radius*2/*Math.sqrt(datum.tier1Goal*fundingScale)*/)*Math.sin(2*Math.PI/bucketData.length * index) + SVG_HEIGHT/2;
+        }).strength(0.05))
+        .on('tick', () => {
+            bucketTicksPerSec++;
+            bucketsGroup.selectAll('circle')
+                .attr('cx', (datum, index, elements) => Math.round(datum.x*10)/10)
+                .attr('cy', (datum, index, elements) => Math.round(datum.y*10)/10);
+            bucketsGroup.selectAll('image')
+                .attr('x', (datum, index, elements) => Math.round(datum.x*10)/10 - datum.radius)
+                .attr('y', (datum, index, elements) => Math.round(datum.y*10)/10 - datum.radius)
+            bucketsGroup.selectAll('text')
+                .attr('x', (datum) => Math.round(datum.x))
+                .attr('y', (datum) => Math.round(datum.y))
+        });
 
     return bucketSimulation;
 }
 
 //(Re)join our bucket data to its elements
-function refreshBuckets(bucketsGroup, bucketData){
+function refreshBuckets(){
     let bucketDots = bucketsGroup.selectAll('g').data(bucketData, function(datum, index, temp){
         return datum.index;
     }).join(
@@ -233,9 +248,7 @@ function initalizeSimulations(campaign){
         });
 
     //This function is called on each new coin dot to enable their dragging behavior
-    let dragBucketIndex = -1;
-    let dragging = false;
-    function drag(){
+    function dragHandler(){
         
         return d3.drag()
             .on("start", (event, subject) => {
@@ -379,7 +392,7 @@ function initalizeSimulations(campaign){
                     .style('font-size', (datum) => datum.radius*0.2 + "px")
                     .text((datum) => "#" + datum.id)
                     
-                coinGroups.call(drag())
+                coinGroups.call(dragHandler())
                 
                 console.log(enteringCoins.size() + " coins created.");
             },
