@@ -23,31 +23,29 @@ let campaign;
 function echo(packet){
     const msgLI =document.createElement("li");
     msgLI.classList.add("msgLI");
-    msgLI.innerHTML = "<span class='t'>" + new Date(packet.time).toLocaleTimeString([], TIME_OPTIONS) + "></span> " + packet.message;
-    $("#messages").append(msgLI);
+    msgLI.innerHTML = "<span class='t'>" + new Date(packet.time).toLocaleTimeString([], TIME_OPTIONS) + "></span> " + formatAnsiEscapeCodes(packet.message);
+    document.getElementById('messages').append(msgLI);
     
-    //If we're already scrolled to the bottom, keep it scrolled to the bottom.  If not, don't scroll as the user may be reading
-    //if($("#activity")[0].scrollHeight - $("#activity").scrollTop() - $("#activity").outerHeight() < 1){
-        $("#activity").animate({ scrollTop: $("#activity").prop("scrollHeight")}, 500);
-    //}
+	const activityDiv = document.getElementById('activity');
+    if (activityDiv.classList.contains('sticky')){ activityDiv.scrollTop = activityDiv.scrollHeight; }
 }
 
 function redrawCampaign(){
-    let currentTime = new Date().getTime();
+    /*let currentTime = new Date().getTime();
     let duration = campaign.marketEndTime - campaign.marketStartTime;
     let timeDelta = (currentTime < campaign.marketStartTime) ? campaign.marketStartTime - currentTime : campaign.marketEndTime - currentTime;
     let maxTime = Math.max(Math.abs(currentTime - campaign.marketStartTime), Math.abs(currentTime - campaign.marketEndTime));
-    let timePixelSpan = $("#timeline").width();
+	let timePixelSpan = document.getElementById('timeline').width;
     
     const TENSE = (currentTime < campaign.marketStartTime ? "future" : (currentTime < campaign.marketEndTime ? "present" : "past"));
     
     
-    $("#timelineBefore").animate({"width": (TENSE == "future" ? timeDelta*(timePixelSpan/maxTime) : 0) + "px" }, 100); //If the event in in the future, there is no before
-    $("#timelineDuring").animate({"width": (TENSE == "present" ? timePixelSpan : duration*(timePixelSpan/maxTime)) + "px" }, 100); //If we're currently in the market, make it span the entire screen.  Otherwise, figure the percentage. 
-    $("#timelineAfter").animate({"width": (TENSE == "past" ? -timeDelta*(timePixelSpan/maxTime) : 0) + "px" }, 100); //If the event was in the past, expand this out (timeDelta will be negative); otherwise it should be 0 width
+    document.getElementById('timelineBefore').animate({"width": (TENSE == "future" ? timeDelta*(timePixelSpan/maxTime) : 0) + "px" }, 100); //If the event in in the future, there is no before
+    document.getElementById('timelineDuring').animate({"width": (TENSE == "present" ? timePixelSpan : duration*(timePixelSpan/maxTime)) + "px" }, 100); //If we're currently in the market, make it span the entire screen.  Otherwise, figure the percentage. 
+    document.getElementById('timelineAfter').animate({"width": (TENSE == "past" ? -timeDelta*(timePixelSpan/maxTime) : 0) + "px" }, 100); //If the event was in the past, expand this out (timeDelta will be negative); otherwise it should be 0 width
     
     //Determine where to mark "now"
-    $("#timelineNow").animate({"left": (TENSE == "future" ? 0 : (TENSE == "present" ? (duration-timeDelta)*(timePixelSpan/duration) : (timePixelSpan))) - $("#timelineNow").width()/2 + "px" }, 100); //Left wall if upcoming, right-wall if past, mid-way if during
+    document.getElementById('timelineNow').animate({"left": (TENSE == "future" ? 0 : (TENSE == "present" ? (duration-timeDelta)*(timePixelSpan/duration) : (timePixelSpan))) - document.getElementById('timelineNow').width/2 + "px" }, 100); //Left wall if upcoming, right-wall if past, mid-way if during
     
     //Adjust our message to include tense
     let timeMessage = "Market " + (TENSE == "future" ? "opens in " : (TENSE == "present" ? "closes in " : "closed ")) + timeDiffMessage(timeDelta) + (TENSE == "past" ? " ago." : ".");;
@@ -62,11 +60,11 @@ function redrawCampaign(){
         fundingMessage += "!";
     }
     
-    $("#campaignMessage").html(timeMessage + fundingMessage);
+    document.getElementById('campaignMessage').innerHTML = timeMessage + fundingMessage;
 
-    $('#timelineDuring').progressbar({value:true});
+    document.getElementById('timelineDuring').progressbar({value:true});*/
     
-    console.log(`${bucketTicksPerSec} / ${coinTicksPerSec}`); bucketTicksPerSec = 0; coinTicksPerSec = 0;
+    //console.log(`${bucketTicksPerSec} / ${coinTicksPerSec}`); bucketTicksPerSec = 0; coinTicksPerSec = 0;
 }
 
 function refreshTooltip(event, subject){
@@ -143,7 +141,7 @@ function refreshBuckets(){
             
             bucketGroups.append('svg:image')
                 .attr('class', 'bucketImage')
-                .attr('xlink:href',  'https://spark-coin.com/public/Bucket.png')
+                .attr('xlink:href',  '../Bucket.png')
                 .attr('height', (datum) => datum.radius*2)//Math.sqrt(datum.tier1Goal*fundingScale)*2) //Diameter is 2X the size of the circle radius later.
                 .attr('width', (datum) => datum.radius*2)//Math.sqrt(datum.tier1Goal*fundingScale)*2)
             
@@ -363,7 +361,7 @@ function refreshCoins(){
             coinGroups.append('svg:image')
                 .attr('id', (d,i) => 'coinImage' + i)						   
                 .attr('class', 'coinImage')
-                .attr('xlink:href',  'https://spark-coin.com/public/Heads.png')
+                .attr('xlink:href',  '../Heads.png')
                 .attr('height', (datum) => datum.radius*2)//Math.sqrt(datum.value*fundingScale)*2)
                 .attr('width', (datum) => datum.radius*2)//Math.sqrt(datum.value*fundingScale)*2);
                 
@@ -431,4 +429,44 @@ function timeDiffMessage(timeDelta){
     return (DAYS ? DAYS + `day${DAYS > 1? 's' : ''} ` : "") + (HOURS ? HOURS + `hr${HOURS > 1? 's' : ''} ` : "") + (MINUTES ? MINUTES + "min " : "") + SECONDS + "s";
 }
 
+function formatAnsiEscapeCodes(text) {
+  // Define a mapping of ANSI escape codes to HTML styles
+  const styleMap = {
+    "\u001b[0m": "</span>",
+    "\u001b[1m": "<span style='font-weight: bold;'>",
+    "\u001b[2m": "<span style='opacity: 0.5;'>",
+    "\u001b[3m": "<span style='font-style: italic;'>",
+    "\u001b[4m": "<span style='text-decoration: underline;'>",
+    "\u001b[30m": "<span style='color: black;'>",
+    "\u001b[31m": "<span style='color: red;'>",
+    "\u001b[32m": "<span style='color: green;'>",
+    "\u001b[33m": "<span style='color: yellow;'>",
+    "\u001b[34m": "<span style='color: blue;'>",
+    "\u001b[35m": "<span style='color: magenta;'>",
+    "\u001b[36m": "<span style='color: cyan;'>",
+    "\u001b[37m": "<span style='color: white;'>",
+    "\u001b[40m": "<span style='background-color: black;'>",
+    "\u001b[41m": "<span style='background-color: red;'>",
+    "\u001b[42m": "<span style='background-color: green;'>",
+    "\u001b[43m": "<span style='background-color: yellow;'>",
+    "\u001b[44m": "<span style='background-color: blue;'>",
+    "\u001b[45m": "<span style='background-color: magenta;'>",
+    "\u001b[46m": "<span style='background-color: cyan;'>",
+    "\u001b[47m": "<span style='background-color: white;'>",
+  };
+
+  // Replace each ANSI escape code with its corresponding HTML style
+  for (let code in styleMap) {
+    text = text.split(code).join(styleMap[code]);
+  }
+
+  // Add a closing span tag to any unclosed spans
+  let openSpanCount = (text.match(/<span/g) || []).length;
+  let closeSpanCount = (text.match(/<\/span>/g) || []).length;
+  for (let i = 0; i < openSpanCount - closeSpanCount; i++) {
+    text += "</span>";
+  }
+
+  return text;
+}
 

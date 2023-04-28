@@ -1,7 +1,6 @@
 {
   "dependencies": {
-    "jquery": "^3.6.4",
-    "jquery-ui": "^1.13.2",
+    "googleapis": "^118.0.0",
     "nodemon": "^2.0.20",
     "socket.io": "^4.6.1"
   }

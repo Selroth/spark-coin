@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<head>
+	<title>Spark Coin Client</title>
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+
+	<style>
+		body { margin: 0; padding-bottom: 3rem; font:12pt Consolas; color:#FFFFFF; background:#000000 repeat url("../4452639598_c7d981777f_o.jpg");}
+		#campaignName { text-align:center;}
+		#timeline { display:flex; position:relative; align-items:center; top:0; margin:0.5em 2em; }
+		#timelineBefore { width:33%; height:0.1em; background:#0000FF; }
+		#timelineDuring { width:34%; border-radius: 0.5em/50%; height:1em; min-width:1em; background:#0000FF; }
+		#timelineAfter { width:33%; height:0.1em;  background:#0000FF; }
+		#timelineNow { position:absolute; width:0.5em; height:0.5em; border-radius: 50%; background:#FF0000; }
+		#campaignMessage { }
+
+		#preamble { color:#444; font-style:italic; list-style-type: none; margin: 0; padding: 0; }      			
+		#activity { height: 15vh; width:95%; position: fixed; bottom: 0; overflow-y: scroll; white-space:nowrap; margin: auto 15px; font: 12pt system-ui; background: #00000044; border: 1px solid black; backdrop-filter: blur(10px); border-radius: 25px; filter: drop-shadow(10px 10px 6px black);}
+		#messages { list-style-type: none; margin: 0; padding: 0; }
+		#messages > li { padding: 0rem; }
+		#messages.sticky { position: fixed; bottom: 0; }
+
+		#form { display: none; background: rgba(128, 128, 128, 0.5); padding: 0.25rem; position: fixed; bottom: 0; left: 0; right: 0; height: 2rem; box-sizing: border-box; backdrop-filter: blur(10px); }
+		#input { border: none; padding: 0; flex-grow: 1; margin: 0.25rem; }
+		#input:focus { outline: none; }
+		#form > button { background: #333; border: none; padding: 0 1rem; margin: 0.25rem; border-radius: 3px; outline: none; color: #fff; }
+		.t{ color:#888888; } 
+		
+		#tooltip { position: fixed; white-space:nowrap; opacity: 0; background-color: #88888888; border: 2px solid black; border-radius:5px; padding: 5px; user-select: none; }
+		#tableTop { stroke: #CCCCCCFF; stroke-width: 2; vector-effect: non-scaling-stroke; pointer-events: none; filter: drop-shadow(25px 75px 5px rgb(0 0 0 / 0.5)); }
+		
+		.bucketsGroup { filter: drop-shadow(8px 25px 2px rgb(0 0 0 / 0.5)) }
+		.bucketCircle { stroke:#000000; stroke-width:4; vector-effect:non-scaling-stroke; fill-opacity:0;}
+		.bucketFill { stroke-opacity:0; fill:#00FFFF; fill-opacity:0.5; pointer-events:none;}
+		.bucketTease { stroke-opacity:0; fill:#FF0000FF; fill-opacity:1; pointer-events:none;}
+		.bucketText { fill: #000; stroke: #FFF; stroke-width: 0.5px; pointer-events:none;}
+		
+		.coinCircle { stroke:#00FFFF; stroke-width:2; vector-effect:non-scaling-stroke;}
+		.coinImage { pointer-events:none; }
+		.coinValueText { fill: #000; pointer-events:none;}
+	
+	</style>
+
+	<script src="/socket.io/socket.io.js"></script>
+	<script src="https://d3js.org/d3.v7.min.js"></script>
+	<script src="/utilities.js"></script>
+	<script src="/client.js"></script>
+	<script>
+		let infoDialog, form, tooltip;
+
+		function reloadCampaign(){
+			document.getElementById('campaignName').innerHTML = campaign.name;
+
+			clearInterval();
+			setInterval(redrawCampaign, 1000);
+
+			//Create and set up our SVG (Scalable Vector Graphics - opting for this over Canvas due to data binding and interactivity performance)	
+			const SVG = d3.select('#graph').append('svg')
+				.style('position', 'absolute').style('top', '0').style('left', '0').style('width', '100%').style('height', '100%').style('display', 'block')
+				.attr('viewBox', [0, 0, SVG_WIDTH, SVG_HEIGHT]);
+
+			d3.dragDisable(window); //Prevents the entire window being bring dragged
+
+			// create a tooltip used within the GUI
+			tooltip = d3.select('#graph').append('div').attr('id', 'tooltip');
+
+			//Add some text to the GUI.
+			guiGroup = SVG.append("g").attr("id", "guiGroup");
+			//guiGroup.append('text').attr('x', 5).attr('y', 160).style("fill", "white").text("For a good time, grab a few coins and put them in the buckets!");
+			//guiGroup.append('text').attr('x', 5).attr('y', 180).style('fill', 'white').text("You can also pan & zoom like Google Maps!");
+
+			//Set up our table top
+			tableGroup = SVG.append('g').attr('id', 'tableGroup');	
+
+			bucketsGroup = tableGroup.append('g').attr('id', 'bucketsGroup')
+				.style('filter', 'drop-shadow(8px 25px 5px rgb(0 0 0 / 0.5))');
+
+			tableTop = tableGroup.append('svg:image')
+				.attr('id', 'tableTop')
+				.attr('xlink:href',  '../TableTop.png')
+				.attr('x', SVG_WIDTH/2 - TABLE_RADIUS)
+				.attr('y', SVG_HEIGHT/2 - TABLE_RADIUS)
+				.attr('width', TABLE_RADIUS*2)	
+				.attr('height', TABLE_RADIUS*2)
+
+
+				
+			coinsGroup = tableGroup.append('g').attr('id', 'coinsGroup').attr('cursor', 'grab')
+				.style('filter', 'drop-shadow(2px 6px 1px rgb(0 0 0 / 0.5))');;
+				
+			//Set up simple pan & zoom for our tableGroup (responds to mouse actions on the entire SVG) 
+			const ZOOM = d3.zoom()
+				.scaleExtent([MIN_ZOOM, MAX_ZOOM])
+				.on('zoom', e => tableGroup.attr('transform', e.transform))
+			SVG.call(ZOOM);
+
+			//Map our data for use in visualization
+			bucketData = campaign.buckets.map((e) => {return {name: e[0], currentFunding: e[1], tier1Goal: e[2], tier2Goal: e[3], tier3Goal: e[4], tease: 0, radius: Math.sqrt(e[2]*fundingScale)}	})
+			bucketData = bucketData.filter((e) => {return e.name}); //Filter out those that don't have a name.
+
+			refreshBuckets();
+			initializeBucketsSimulation();
+
+			coinData = campaign.coins.map(function(e){	return {id: e.ID, value: e.currentValue, multiplier: e.multiplier, lastScanned: e.lastScanned, lastScannedBy: e.lastScannedBy, radius: Math.sqrt(e.currentValue*fundingScale)}	}); 
+			const VALUE_PER_PIXEL = coinData.reduce((accumulator, currentCoin) => accumulator + currentCoin.value, 0)/(SVG_WIDTH*SVG_HEIGHT);
+			console.log(`Value per pixel: ${VALUE_PER_PIXEL}`);
+
+			refreshCoins();
+			initalizeCoinsSimulations();
+
+			/*setTimeout(() => {
+				SVG.transition().duration(5000).call(
+					ZOOM.transform,
+					d3.zoomIdentity.translate(SVG_WIDTH/2, SVG_HEIGHT/2).scale(25).translate(-(coinData[0].x), -(coinData[0].y))
+			)}, 2000);*/
+		}
+		window.onload = (event) => {
+			let coinBits = window.location.pathname.match(/^\/([a-zA-Z0-9]{2,3})\/([a-zA-Z0-9]{5})-(\S+)$/)
+			let coinCampaignID = coinBits[1];
+			let coinID = coinBits[2];
+			let coinSecret = coinBits[3];
+			
+			var socket = io({auth:{token: 'test'}});
+			
+			var messages = document.getElementById('messages');
+			//var input = document.getElementById('input')[0];
+			
+			//input.focus();
+			
+			/*socket.on('campaign', function(packetString){
+				let packet = JSON.parse(packetString);
+				//echo(packet);
+				campaign = JSON.parse(packet.message);
+				
+				let value = Number(campaign.spentFunds)/Number(campaign.overallFunding)*100;
+				if (Number.isFinite(value)) document.getElementById('timelineDuring").progressbar( "option", {value});
+				
+				redrawCampaign();
+			});
+
+			socket.on('coin', function(packetString){
+				let packet = JSON.parse(packetString);
+				echo(packet);
+				coin = JSON.parse(packet.message).coin;
+				
+				document.getElementById('coinMessage").html('This part is under construction, but here\'s the raw values:<br />' + 	JSON.stringify(coin, "", "<br />"));
+				
+			});
+			socket.on('coinValues', function(packetString){
+				let packet = JSON.parse(packetString);
+				let coinValues = JSON.parse(packet.message).coinValuesRange.data.values;
+				echo(coinValues.join(","));
+			});*/
+			socket.on('#SERVER', function(packetString) {
+				let packet = JSON.parse(packetString);
+				echo(packet);
+			});
+			socket.on(coinSecret, function(packetString) {
+				campaign = JSON.parse(packetString);
+				console.log("Campaign Received!");
+				reloadCampaign();
+			});
+			
+			const form = document.getElementById('form');
+			const input = document.getElementById('input');
+
+			form.addEventListener('submit', function(e) {
+				e.preventDefault();
+				if (input.value) {
+					socket.emit('chat', input.value);
+					input.value = '';
+				}
+			});
+			
+			socket.emit('#AUTH', coinCampaignID, coinID, coinSecret);
+			
+			/*infoDialog = document.getElementById('infoDialog').dialog({
+				autoOpen: false,
+				maxHeight: 800,
+				minHeight: 300,
+				width: "75%",
+				minWidth: 400,
+				
+				//modal: true,
+				buttons: {	},
+				show: { effect: "fade",	duration: 1000 },
+				hide: { effect: "fade",	duration: 1000 }
+			});*/
+			
+			/*document.getElementById('infoButton').button().on('click', function() {
+				infoDialog.dialog( infoDialog.dialog('isOpen') ? 'close' : 'open' );
+			});	
+			
+			document.getElementById('activity').scrollTop(document.getElementById('activity').prop('scrollHeight'));
+			
+			document.getElementById('timelineDuring').progressbar({value:false});
+*/
+			const myDiv = document.getElementById('activity');
+			myDiv.addEventListener('scroll', () => {
+				if (myDiv.scrollTop + myDiv.clientHeight >= myDiv.scrollHeight) {
+					myDiv.classList.add('sticky');
+				} else {
+					myDiv.classList.remove('sticky');
+				}
+			});
+  
+		}
+	</script>
+</head>
+<body>
+	<h1 id="campaignName">Loading...</h1>
+	<div id="timeline">
+		<div id="timelineBefore"></div>
+		<div id="timelineDuring"></div>
+		<div id="timelineAfter"></div>
+		<div id="timelineNow">Now</div>
+	</div>
+	<div id="campaignMessage"></div>
+	<div id="coinMessage"></div>
+	<div id="graph"></div>
+	
+	<div id="activity">
+		<ul id="preamble">
+		</ul>
+
+		<ul id="messages"></ul>
+		<form id="form" action="">
+			<input id="input" placeholder="[USER] >" autocomplete="off" /><button>Send</button>
+			<button id="infoButton" class="ui-button ui-widget ui-corner-all ui-button-icon-only" title="Info">
+				<span class="ui-icon ui-icon-info"></span>Info
+			</button>
+		</form>
+	</div>
+</body>
